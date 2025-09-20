@@ -1,7 +1,7 @@
 import fs from "fs";
 import readline from "readline";
 import { prisma } from "../db";
-import { toInt, deriveUrlParts, truncateToDay, truncateToHour } from "../utils/normalize";
+import { toInt, toBigIntOrNull, deriveUrlParts, truncateToDay, truncateToHour } from "../utils/normalize";
 
 // Example line (combined):
 // 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
@@ -9,14 +9,27 @@ const COMBINED =
   /^(?<ip>\S+) \S+ \S+ \[(?<date>[^\]]+)\] "(?<method>\S+)\s(?<path>[^"]*?)\s(?<proto>[^"]+)" (?<status>\d{3}) (?<size>\S+)(?: "(?<ref>[^"]*)" "(?<ua>[^"]*)")?/;
 
 function parseApacheDate(s: string): Date | null {
-  // 10/Oct/2000:13:55:36 -0700
-  const m = s.match(/^(\d{2})\/(\w{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2}) ([+\-]\d{4})$/);
+  // Example: 10/Oct/2000:13:55:36 -0700
+  const m = s.match(/^(\d{2})\/(\w{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2}) ([+\-])(\d{2})(\d{2})$/);
   if (!m) return null;
-  const [ , dd, mon, yyyy, HH, MM, SS, tz ] = m;
+  const [ , dd, mon, yyyy, HH, MM, SS, tzSign, tzh, tzm ] = m;
   const months: Record<string, number> = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
-  const d = new Date(Date.UTC(Number(yyyy), months[mon], Number(dd), Number(HH), Number(MM), Number(SS)));
-  // ignore tz offset for simplicity in demo
-  return d;
+  const year = Number(yyyy);
+  const month = months[mon];
+  const day = Number(dd);
+  const hour = Number(HH);
+  const min = Number(MM);
+  const sec = Number(SS);
+
+  // tz offset minutes
+  const offsetMinutes = Number(tzh) * 60 + Number(tzm);
+  const offsetSign = tzSign === "-" ? -1 : 1;
+  const offset = offsetSign * offsetMinutes;
+
+  // The log time is in local time with the given offset (local = UTC + offset).
+  // To get UTC milliseconds: utc = Date.UTC(...) - (offsetMinutes * 60 * 1000)
+  const utcMs = Date.UTC(year, month, day, hour, min, sec) - (offset * 60 * 1000);
+  return new Date(utcMs);
 }
 
 export async function parseApache(filePath: string, uploadId: string) {
@@ -39,13 +52,14 @@ export async function parseApache(filePath: string, uploadId: string) {
     const m = line.match(COMBINED);
     if (!m || !m.groups) continue;
 
-    const ip = m.groups["ip"];
-    const ts = parseApacheDate(m.groups["date"]);
-    const method = m.groups["method"];
-    const path = m.groups["path"];
-    const status = toInt(m.groups["status"]);
-    const ref = m.groups["ref"] || null;
-    const ua = m.groups["ua"] || null;
+  const ip = m.groups["ip"];
+  const ts = parseApacheDate(m.groups["date"]);
+  const method = m.groups["method"];
+  const path = m.groups["path"];
+  const status = toInt(m.groups["status"]);
+  const size = m.groups["size"] || null;
+  const ref = m.groups["ref"] || null;
+  const ua = m.groups["ua"] || null;
 
     const parts = deriveUrlParts(path?.startsWith("http") ? path : undefined);
 
@@ -62,7 +76,7 @@ export async function parseApache(filePath: string, uploadId: string) {
       category: null,
       action: null,
       bytesIn: null,
-      bytesOut: null,
+      bytesOut: toBigIntOrNull(size),
       userAgent: ua,
       referrer: ref,
       country: null,
@@ -74,7 +88,7 @@ export async function parseApache(filePath: string, uploadId: string) {
       urlTld: parts.tld,
       hourBucket: truncateToHour(ts),
       dayBucket: truncateToDay(ts),
-      extras: { proto: m.groups["proto"] },
+      extras: { proto: m.groups["proto"], date: ts ? (new Date(ts)).toISOString().split('T')[0] : null },
       rawLine: line,
     };
 

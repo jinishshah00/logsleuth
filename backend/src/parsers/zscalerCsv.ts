@@ -92,7 +92,7 @@ export async function parseZscalerCsv(filePath: string, uploadId: string) {
           urlTld: parts.tld,
           hourBucket: truncateToHour(ts),
           dayBucket: truncateToDay(ts),
-          extras: record, // keep full row for fidelity
+          extras: { ...record, date: ts ? (new Date(ts)).toISOString().split('T')[0] : null }, // keep full row and add date
           rawLine: JSON.stringify(record),
         };
 

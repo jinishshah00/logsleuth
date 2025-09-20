@@ -10,8 +10,10 @@ import {
 function CustomTimeTick(props: any) {
   const { x, y, payload } = props;
   const d = new Date(payload.value);
-  const dateStr = d.toLocaleDateString();
-  const timeStr = d.toLocaleTimeString();
+  // render ticks in UTC consistently so uploaded ISO timestamps with Z show correctly
+  const dateStr = d.toISOString().split("T")[0];
+  // drop milliseconds (e.g. 09:00:56.000 -> 09:00:56)
+  const timeStr = d.toISOString().split("T")[1].split(".")[0];
   return (
     <text x={x} y={y} dy={10} textAnchor="middle" className="fill-gray-700" fontSize={10}>
       <tspan x={x} dy={-4}>{dateStr}</tspan>
@@ -36,18 +38,18 @@ type Summary = {
 type EventsResp = {
   ok: true; total: number; page: number; pageSize: number;
   items: {
-    id: number; ts: string | null; srcIp: string | null; userName: string | null;
+    id: number; ts: string | null; date?: string | null; srcIp: string | null; userName: string | null;
     url: string | null; domain: string | null; method: string | null; status: number | null;
-    category: string | null; action: string | null; bytesOut: number | null; bytesIn: number | null;
+    category: string | null; action: string | null; bytesOut?: number | null; bytesIn?: number | null;
     userAgent: string | null; urlPath: string | null;
   }[];
 };
 
 type TimelineResp = {
   ok: true; items: {
-    id: number; ts: string | null; srcIp: string | null; userName: string | null;
+    id: number; ts: string | null; date?: string | null; srcIp: string | null; userName: string | null;
     domain: string | null; url: string | null; method: string | null; status: number | null;
-    category: string | null; action: string | null;
+    category: string | null; action: string | null; bytesOut?: number | null;
   }[]; limit: number;
 };
 
@@ -323,7 +325,8 @@ export default function UploadDetailPage() {
             <table className="w-full border rounded-2xl text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="p-2 text-left">Time</th>
+                  <th className="p-2 text-left">Date</th>
+                  <th className="p-2 text-left">Time (UTC)</th>
                   <th className="p-2 text-left">Src IP</th>
                   <th className="p-2 text-left">User</th>
                   <th className="p-2 text-left">Method</th>
@@ -335,7 +338,8 @@ export default function UploadDetailPage() {
               <tbody>
                 {ev?.items.map(it => (
                   <tr key={it.id} className="border-b">
-                    <td className="p-2">{it.ts ? new Date(it.ts).toLocaleTimeString() : "-"}</td>
+                    <td className="p-2">{it.date ?? (it.ts ? new Date(it.ts).toISOString().split('T')[0] : "-")}</td>
+                    <td className="p-2">{it.ts ? new Date(it.ts).toISOString().split('T')[1].split('.')[0] : "-"}</td>
                     <td className="p-2">{it.srcIp ?? "-"}</td>
                     <td className="p-2">{it.userName ?? "-"}</td>
                     <td className="p-2">{it.method ?? "-"}</td>
@@ -380,7 +384,8 @@ export default function UploadDetailPage() {
             <table className="w-full border rounded-2xl text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="p-2 text-left">Time</th>
+                  <th className="p-2 text-left">Date</th>
+                  <th className="p-2 text-left">Time (UTC)</th>
                   <th className="p-2 text-left">Actor</th>
                   <th className="p-2 text-left">Domain / URL</th>
                   <th className="p-2 text-left">Details</th>
@@ -389,10 +394,11 @@ export default function UploadDetailPage() {
               <tbody>
                 {tlItems?.map(it => (
                   <tr key={it.id} className="border-b">
-                    <td className="p-2">{it.ts ? new Date(it.ts).toLocaleString() : "-"}</td>
+                    <td className="p-2">{it.date ?? (it.ts ? new Date(it.ts).toISOString().split('T')[0] : "-")}</td>
+                    <td className="p-2">{it.ts ? new Date(it.ts).toISOString().split('T')[1].split('.')[0] : "-"}</td>
                     <td className="p-2">{it.userName || it.srcIp || "-"}</td>
                     <td className="p-2">{it.domain || it.url || "-"}</td>
-                    <td className="p-2">{`${it.method ?? ""} ${it.status ?? ""} ${it.category ?? ""} ${it.action ?? ""}`.trim()}</td>
+                    <td className="p-2">{`${it.method ?? ""} ${it.status ?? ""} ${it.category ?? ""} ${it.action ?? ""}`.trim()}{it.bytesOut ? ` · ${it.bytesOut} bytes` : ""}</td>
                   </tr>
                 ))}
                 {!tlItems?.length && <tr><td className="p-3 text-gray-500" colSpan={4}>No timeline items</td></tr>}
@@ -449,7 +455,7 @@ export default function UploadDetailPage() {
                     <td className="p-2">
                       {a.event ? (
                         <>
-                          #{a.event.id} — {a.event.ts ? new Date(a.event.ts).toLocaleTimeString() : "-"} — {a.event.userName || a.event.srcIp || "-"} → {a.event.domain || a.event.url || "-"} {a.event.method || ""} {a.event.status ?? ""}
+                          #{a.event.id} — {a.event.ts ? new Date(a.event.ts).toISOString().split('T')[1].split('.')[0] : "-"} — {a.event.userName || a.event.srcIp || "-"} → {a.event.domain || a.event.url || "-"} {a.event.method || ""} {a.event.status ?? ""}
                           {a.event.bytesOut ? ` (${a.event.bytesOut} bytes)` : ""}
                         </>
                       ) : "—"}

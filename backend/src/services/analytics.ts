@@ -146,7 +146,15 @@ export async function listEvents(uploadId: string, q: EventsQuery) {
     })
   ]);
 
-  return { total, page, pageSize, items };
+  // normalize items: add `date` (ISO YYYY-MM-DD) and coerce bytes to numbers when possible
+  const mapped = items.map((it: any) => {
+    const date = it.ts ? (new Date(it.ts)).toISOString().split("T")[0] : null;
+    const bytesOut = it.bytesOut == null ? null : (typeof it.bytesOut === "bigint" ? Number(it.bytesOut) : Number(it.bytesOut));
+    const bytesIn = it.bytesIn == null ? null : (typeof it.bytesIn === "bigint" ? Number(it.bytesIn) : Number(it.bytesIn));
+    return { ...it, date, bytesOut, bytesIn };
+  });
+
+  return { total, page, pageSize, items: mapped };
 }
 
 export async function getTimeline(uploadId: string, limit = 200) {
@@ -157,8 +165,16 @@ export async function getTimeline(uploadId: string, limit = 200) {
     take: limit,
     select: {
       id: true, ts: true, srcIp: true, userName: true, domain: true, url: true,
-      method: true, status: true, category: true, action: true
+      method: true, status: true, category: true, action: true, bytesOut: true, bytesIn: true, urlPath: true
     }
   });
-  return { items, limit };
+
+  const mapped = items.map((it: any) => {
+    const date = it.ts ? (new Date(it.ts)).toISOString().split("T")[0] : null;
+    const bytesOut = it.bytesOut == null ? null : (typeof it.bytesOut === "bigint" ? Number(it.bytesOut) : Number(it.bytesOut));
+    const bytesIn = it.bytesIn == null ? null : (typeof it.bytesIn === "bigint" ? Number(it.bytesIn) : Number(it.bytesIn));
+    return { ...it, date, bytesOut, bytesIn };
+  });
+
+  return { items: mapped, limit };
 }
