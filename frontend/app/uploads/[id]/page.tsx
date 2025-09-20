@@ -85,20 +85,17 @@ export default function UploadDetailPage() {
   const [method, setMethod] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
-  // timeline (windowed)
-  const [tlItems, setTlItems] = useState<TimelineResp["items"] | null>(null);
-  const [tlLimit, setTlLimit] = useState<number>(100);
-  const [tlNextCursorAfter, setTlNextCursorAfter] = useState<string | null>(null);
-  const [tlNextCursorBefore, setTlNextCursorBefore] = useState<string | null>(null);
-  const [tlWindow, setTlWindow] = useState<{ startTs?: string; endTs?: string } | null>(null);
+  const [srcIp, setSrcIp] = useState("");
+  // timeline (paginated like Events)
+  const [tlItems, setTlItems] = useState<EventsResp["items"] | null>(null);
+  const [tlPage, setTlPage] = useState<number>(1);
+  const [tlTotal, setTlTotal] = useState<number | null>(null);
   const [tlLoading, setTlLoading] = useState(false);
-  // timeline filters / cursors
+  // timeline filters
   const [tlActor, setTlActor] = useState<string>("");
   const [tlDomain, setTlDomain] = useState<string>("");
   const [tlStartTs, setTlStartTs] = useState<string | null>(null);
   const [tlEndTs, setTlEndTs] = useState<string | null>(null);
-  const [tlCursorAfter, setTlCursorAfter] = useState<string | null>(null);
-  const [tlCursorBefore, setTlCursorBefore] = useState<string | null>(null);
   // anomalies
   const [anoms, setAnoms] = useState<AnomalyResp["items"] | null>(null);
   // AI explanations (TODO)
@@ -124,45 +121,34 @@ export default function UploadDetailPage() {
     ).then(setEv).catch(() => {});
   }, [uploadId, page, method, status, search]);
 
-  // helper to fetch timeline with provided params (does not rely on state being set first)
-  async function fetchTimelineWithParams(params: {
-    limit?: number;
-    cursorAfter?: string | null;
-    cursorBefore?: string | null;
-    startTs?: string | null;
-    endTs?: string | null;
-    actor?: string;
-    domain?: string;
-  }) {
+  // helper to fetch timeline as paginated events (25 per page)
+  async function fetchTimelinePage(page: number) {
     setTlLoading(true);
     try {
       const qs = new URLSearchParams();
-      if (params.limit) qs.set("limit", String(params.limit));
-      if (params.cursorAfter) qs.set("cursorAfter", params.cursorAfter);
-      if (params.cursorBefore) qs.set("cursorBefore", params.cursorBefore);
-      if (params.startTs) qs.set("startTs", params.startTs);
-      if (params.endTs) qs.set("endTs", params.endTs);
-      if (params.actor) qs.set("actor", params.actor);
-      if (params.domain) qs.set("domain", params.domain);
-
-      const res = await apiGet<any>(`/api/uploads/${uploadId}/timeline?${qs.toString()}`);
+      qs.set("page", String(page));
+      qs.set("pageSize", String(25));
+      // timeline should use the same filters as events
+      if (method) qs.set("method", method);
+      if (status) qs.set("status", status);
+      if (search) qs.set("search", search);
+      if (srcIp) qs.set("srcIp", srcIp);
+      if (tlActor) qs.set("search", tlActor);
+      if (tlDomain) qs.set("domain", tlDomain);
+      if (tlStartTs) qs.set("timeFrom", tlStartTs);
+      if (tlEndTs) qs.set("timeTo", tlEndTs);
+  const res = await apiGet<EventsResp>(`/api/uploads/${uploadId}/events?${qs.toString()}`);
       if (!res) {
         setTlItems(null);
-        setTlNextCursorAfter(null);
-        setTlNextCursorBefore(null);
-        setTlWindow(null);
+        setTlTotal(null);
         return;
       }
       setTlItems(res.items ?? []);
-      setTlLimit(res.limit ?? params.limit ?? 100);
-      setTlNextCursorAfter(res.nextCursorAfter ?? null);
-      setTlNextCursorBefore(res.nextCursorBefore ?? null);
-      setTlWindow(res.window ?? null);
+      setTlPage(res.page ?? page);
+      setTlTotal(res.total ?? null);
     } catch (err) {
       setTlItems(null);
-      setTlNextCursorAfter(null);
-      setTlNextCursorBefore(null);
-      setTlWindow(null);
+      setTlTotal(null);
     } finally {
       setTlLoading(false);
     }
@@ -171,10 +157,10 @@ export default function UploadDetailPage() {
   // initial load: most recent events when opening the timeline tab or on upload change
   useEffect(() => {
     if (tab !== "timeline") return;
-    // reset filters/cursors and fetch most recent
-    setTlCursorAfter(null); setTlCursorBefore(null);
+    // reset filters and fetch first page
+    setTlPage(1);
     setTlStartTs(null); setTlEndTs(null); setTlActor(""); setTlDomain("");
-    fetchTimelineWithParams({ limit: tlLimit });
+    fetchTimelinePage(1);
   }, [tab, uploadId]);
 
   async function refreshAnoms() {
@@ -366,19 +352,22 @@ export default function UploadDetailPage() {
         <section className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <input value={tlActor} onChange={e=>setTlActor(e.target.value)} placeholder="Actor (user or IP)" className="border rounded px-2 py-1" />
+            <input value={srcIp} onChange={e=>setSrcIp(e.target.value)} placeholder="Src IP" className="border rounded px-2 py-1" />
             <input value={tlDomain} onChange={e=>setTlDomain(e.target.value)} placeholder="Domain" className="border rounded px-2 py-1" />
-            <input value={tlStartTs ?? ""} onChange={e=>setTlStartTs(e.target.value || null)} placeholder="startTs (ISO)" className="border rounded px-2 py-1" />
-            <input value={tlEndTs ?? ""} onChange={e=>setTlEndTs(e.target.value || null)} placeholder="endTs (ISO)" className="border rounded px-2 py-1" />
-            <select value={tlLimit} onChange={e=>setTlLimit(Number(e.target.value))} className="border rounded px-2 py-1">
-              {[25,50,100,200].map(n => <option key={n} value={n}>{n}</option>)}
+            <input value={tlStartTs ?? ""} onChange={e=>setTlStartTs(e.target.value || null)} placeholder="timeFrom (ISO)" className="border rounded px-2 py-1" />
+            <input value={tlEndTs ?? ""} onChange={e=>setTlEndTs(e.target.value || null)} placeholder="timeTo (ISO)" className="border rounded px-2 py-1" />
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search (url/domain/UA)" className="border rounded px-2 py-1" />
+            <input value={status} onChange={e=>setStatus(e.target.value)} placeholder="status (e.g. 200,404)" className="border rounded px-2 py-1" />
+            <select value={method} onChange={e=>setMethod(e.target.value)} className="border rounded px-2 py-1">
+              <option value="">Any method</option>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
             </select>
-            <button className="border rounded px-3 py-1" onClick={()=>{
-              setTlCursorAfter(null); setTlCursorBefore(null);
-              fetchTimelineWithParams({ limit: tlLimit, startTs: tlStartTs, endTs: tlEndTs, actor: tlActor || undefined, domain: tlDomain || undefined });
-            }}>Apply</button>
+            <button className="border rounded px-3 py-1" onClick={()=>{ setTlPage(1); fetchTimelinePage(1); }}>Apply</button>
           </div>
 
-          <div className="text-sm text-gray-600">{tlWindow ? `Window: ${tlWindow.startTs ?? "?"} → ${tlWindow.endTs ?? "?"} · Limit: ${tlLimit}` : `Most recent events · Limit: ${tlLimit}`}</div>
 
           <div className="overflow-x-auto">
             <table className="w-full border rounded-2xl text-sm">
@@ -406,15 +395,11 @@ export default function UploadDetailPage() {
             </table>
           </div>
 
-          <div className="flex justify-end gap-2 mt-2">
-            <button className="border rounded px-3 py-1" disabled={!tlNextCursorAfter || tlLoading} onClick={()=>{
-              setTlCursorAfter(tlNextCursorAfter); setTlCursorBefore(null);
-              fetchTimelineWithParams({ limit: tlLimit, cursorAfter: tlNextCursorAfter, startTs: tlStartTs, endTs: tlEndTs, actor: tlActor || undefined, domain: tlDomain || undefined });
-            }}>Load newer</button>
-            <button className="border rounded px-3 py-1" disabled={!tlNextCursorBefore || tlLoading} onClick={()=>{
-              setTlCursorBefore(tlNextCursorBefore); setTlCursorAfter(null);
-              fetchTimelineWithParams({ limit: tlLimit, cursorBefore: tlNextCursorBefore, startTs: tlStartTs, endTs: tlEndTs, actor: tlActor || undefined, domain: tlDomain || undefined });
-            }}>Load older</button>
+          <div className="flex items-center gap-2">
+            <button disabled={!tlItems || tlPage <= 1} onClick={()=>setTlPage(p=>{ const np = Math.max(1, p-1); fetchTimelinePage(np); return np; })} className="border rounded px-3 py-1">Prev</button>
+            <div>Page {tlPage}</div>
+            <button disabled={!tlItems || (tlPage*25) >= (tlTotal||0)} onClick={()=>setTlPage(p=>{ const np = p+1; fetchTimelinePage(np); return np; })} className="border rounded px-3 py-1">Next</button>
+            <div className="text-gray-500">{tlTotal ?? 0} total</div>
           </div>
         </section>
       )}

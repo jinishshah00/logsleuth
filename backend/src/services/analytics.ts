@@ -129,6 +129,8 @@ export async function listEvents(uploadId: string, q: EventsQuery) {
       { url: { contains: q.search, mode: "insensitive" } },
       { domain: { contains: q.search, mode: "insensitive" } },
       { userAgent: { contains: q.search, mode: "insensitive" } },
+      { userName: { contains: q.search, mode: "insensitive" } },
+      { srcIp: { contains: q.search, mode: "insensitive" } },
     ];
   }
 
