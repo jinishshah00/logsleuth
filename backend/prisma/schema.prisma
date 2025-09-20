@@ -1,0 +1,106 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  role          String   @default("user")
+  createdAt     DateTime @default(now())
+
+  uploads       Upload[]
+}
+
+enum UploadStatus {
+  RECEIVED
+  PARSING
+  PARSED
+  FAILED
+}
+
+model Upload {
+  id          String        @id @default(cuid())
+  filename    String
+  gcsUri      String?
+  uploadedAt  DateTime      @default(now())
+  status      UploadStatus  @default(RECEIVED)
+  totalRows   Int?
+  parsedRows  Int?
+  errorText   String?
+
+  uploadedBy  String
+  user        User          @relation(fields: [uploadedBy], references: [id])
+
+  events      Event[]
+  anomalies   Anomaly[]
+
+  @@index([uploadedAt])
+  @@index([status])
+}
+
+model Event {
+  id          Int       @id @default(autoincrement())
+  uploadId    String
+  upload      Upload    @relation(fields: [uploadId], references: [id])
+  ts          DateTime? @db.Timestamptz(6)
+
+  // normalized fields (nullable if the source doesn’t have them)
+  srcIp       String?
+  dstIp       String?
+  userName    String?
+  url         String?
+  domain      String?
+  method      String?
+  status      Int?
+  category    String?
+  action      String?
+  bytesIn     BigInt?   @db.BigInt
+  bytesOut    BigInt?   @db.BigInt
+  userAgent   String?
+  referrer    String?
+  country     String?
+  city        String?
+  latitude    Float?
+  longitude   Float?
+  urlHost     String?
+  urlPath     String?
+  urlTld      String?
+
+  // derivations + raw
+  hourBucket  DateTime?
+  dayBucket   DateTime?
+  extras      Json?
+  rawLine     String
+
+  // back-relation so Anomaly.event has an opposite field
+  anomalies   Anomaly[] @relation("EventAnomalies")
+
+  @@index([uploadId, ts])
+  @@index([uploadId, srcIp])
+  @@index([uploadId, domain])
+}
+
+model Anomaly {
+  id         String   @id @default(cuid())
+  uploadId   String
+  upload     Upload   @relation(fields: [uploadId], references: [id])
+
+  eventId    Int?
+  // match the relation name used on Event
+  event      Event?   @relation("EventAnomalies", fields: [eventId], references: [id])
+
+  detector   String
+  reasonText String
+  confidence Float    // 0..1
+  createdAt  DateTime @default(now())
+
+  @@index([uploadId])
+  @@index([eventId])
+}
