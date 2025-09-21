@@ -5,7 +5,10 @@
   --foreground: #171717;
 }
 
-@theme inline {
+/* Theme variables moved into :root to avoid unsupported at-rule (@theme) */
+:root {
+  --background: #dadada;
+  --foreground: #171717;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
@@ -40,3 +43,14 @@ a[tabindex]:hover,
 a[tabindex]:focus {
   cursor: pointer;
 }
+
+@keyframes loading-sweep {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-loading-sweep {
+  animation: loading-sweep 1.6s linear infinite;
+}
+

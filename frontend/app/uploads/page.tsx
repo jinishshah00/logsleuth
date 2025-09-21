@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiPostForm, apiDelete } from "@/lib/api";
 
 type Me = { ok: true; user: { id: string; email: string; role: string } };
 
@@ -53,12 +53,7 @@ export default function UploadsPage() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/uploads`, {
-        method: "POST",
-        body: form,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+      await apiPostForm(`/uploads`, form);
       await refresh();
       setFile(null);
       (document.getElementById("file-input") as HTMLInputElement).value = "";
@@ -134,10 +129,8 @@ export default function UploadsPage() {
                         onClick={async () => {
                         // if already parsed, button is disabled by attribute; guard here just in case
                         if (r.status === 'PARSED') return;
-                        const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
                         try {
-                          const res = await fetch(`${base}/uploads/${r.id}/parse`, { method: "POST", credentials: "include" });
-                          if (!res.ok) { alert("Parse failed. See backend logs."); return; }
+                          await apiPost(`/uploads/${r.id}/parse`, {});
                           await refresh();
                         } catch (e) {
                           alert("Parse failed. See backend logs.");
@@ -150,14 +143,8 @@ export default function UploadsPage() {
                         className="mr-2 border rounded px-2 py-1 text-sm text-red-700"
                         onClick={async () => {
                           if (!confirm(`Delete upload ${r.id} (${r.filename})? This cannot be undone.`)) return;
-                          const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
                           try {
-                            const res = await fetch(`${base}/uploads/${r.id}`, { method: "DELETE", credentials: "include" });
-                            if (!res.ok) {
-                              const txt = await res.text().catch(() => "");
-                              alert(`Delete failed: ${res.status} ${txt}`);
-                              return;
-                            }
+                            await apiDelete(`/uploads/${r.id}`);
                             await refresh();
                           } catch (err: any) {
                             alert(`Delete failed: ${err?.message || String(err)}`);

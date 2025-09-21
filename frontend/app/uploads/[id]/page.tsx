@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, BarChart, Bar, Brush
 } from "recharts";
@@ -93,8 +93,6 @@ export default function UploadDetailPage() {
   const [tlLoading, setTlLoading] = useState(false);
   // timeline filters
   const [tlActor, setTlActor] = useState<string>("");
-  const [tlDomain, setTlDomain] = useState<string>("");
-  const [tlStartTs, setTlStartTs] = useState<string | null>(null);
   const [tlEndTs, setTlEndTs] = useState<string | null>(null);
   // anomalies
   const [anoms, setAnoms] = useState<AnomalyResp["items"] | null>(null);
@@ -132,11 +130,8 @@ export default function UploadDetailPage() {
       if (method) qs.set("method", method);
       if (status) qs.set("status", status);
       if (search) qs.set("search", search);
-      if (srcIp) qs.set("srcIp", srcIp);
-      if (tlActor) qs.set("search", tlActor);
-      if (tlDomain) qs.set("domain", tlDomain);
-      if (tlStartTs) qs.set("timeFrom", tlStartTs);
-      if (tlEndTs) qs.set("timeTo", tlEndTs);
+  if (tlActor) qs.set("search", tlActor);
+  if (tlEndTs) qs.set("timeTo", tlEndTs);
   const res = await apiGet<EventsResp>(`/api/uploads/${uploadId}/events?${qs.toString()}`);
       if (!res) {
         setTlItems(null);
@@ -158,17 +153,20 @@ export default function UploadDetailPage() {
   useEffect(() => {
     if (tab !== "timeline") return;
     // reset filters and fetch first page
-    setTlPage(1);
-    setTlStartTs(null); setTlEndTs(null); setTlActor(""); setTlDomain("");
+  setTlPage(1);
+  setTlEndTs(null); setTlActor("");
     fetchTimelinePage(1);
   }, [tab, uploadId]);
 
   async function refreshAnoms() {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-    const r = await fetch(`${base}/api/uploads/${uploadId}/anomalies`, { credentials: "include" });
-    if (!r.ok) throw new Error("anom fetch");
-    const j: AnomalyResp = await r.json();
-    setAnoms(j.items);
+    try {
+      const j = await apiGet<AnomalyResp>(`/api/uploads/${uploadId}/anomalies`);
+      setAnoms(j.items);
+    } catch (err) {
+      console.error("refreshAnoms", err);
+      setAnoms(null);
+      throw err;
+    }
   }
 
   useEffect(() => {
@@ -183,19 +181,21 @@ export default function UploadDetailPage() {
   );
 
   async function genAiSummary() {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-    const r = await fetch(`${base}/api/uploads/${uploadId}/ai/summary`, { method: "POST", credentials: "include" });
-    if (!r.ok) { alert("AI summary failed"); return; }
-    const j = await r.json();
-    setAiSummary(j.text || "");
+    try {
+      const j = await apiPost<{ text?: string }>(`/api/uploads/${uploadId}/ai/summary`, {});
+      setAiSummary(j.text || "");
+    } catch (err) {
+      alert("AI summary failed");
+    }
   }
 
   async function genAiExpl() {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-    const r = await fetch(`${base}/api/uploads/${uploadId}/ai/explanations`, { method: "POST", credentials: "include" });
-    if (!r.ok) { alert("AI explanations failed"); return; }
-    const j = await r.json();
-    setAiExpl(j.text || "");
+    try {
+      const j = await apiPost<{ text?: string }>(`/api/uploads/${uploadId}/ai/explanations`, {});
+      setAiExpl(j.text || "");
+    } catch (err) {
+      alert("AI explanations failed");
+    }
   }
 
   return (
@@ -303,8 +303,11 @@ export default function UploadDetailPage() {
           <div className="flex flex-wrap gap-2">
             <input value={method} onChange={e=>setMethod(e.target.value)} placeholder="method (e.g. GET,POST)" className="border rounded px-2 py-1"/>
             <input value={status} onChange={e=>setStatus(e.target.value)} placeholder="status (e.g. 200,404)" className="border rounded px-2 py-1"/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search (url/domain/UA)" className="border rounded px-2 py-1 flex-1"/>
-            <button onClick={()=>setPage(1)} className="border rounded px-3 py-1">Apply</button>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search (url/domain/UA)" className="border rounded px-2 py-1"/>
+            <div className="flex items-center gap-2">
+              <button onClick={()=>setPage(1)} className="border rounded px-3 py-1">Apply</button>
+              <button onClick={()=>{ setMethod(""); setStatus(""); setSearch(""); setPage(1); }} className="border rounded px-3 py-1">Reset</button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -350,22 +353,24 @@ export default function UploadDetailPage() {
 
       {tab === "timeline" && (
         <section className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 flex-nowrap overflow-x-auto">
             <input value={tlActor} onChange={e=>setTlActor(e.target.value)} placeholder="Actor (user or IP)" className="border rounded px-2 py-1" />
-            <input value={srcIp} onChange={e=>setSrcIp(e.target.value)} placeholder="Src IP" className="border rounded px-2 py-1" />
-            <input value={tlDomain} onChange={e=>setTlDomain(e.target.value)} placeholder="Domain" className="border rounded px-2 py-1" />
-            <input value={tlStartTs ?? ""} onChange={e=>setTlStartTs(e.target.value || null)} placeholder="timeFrom (ISO)" className="border rounded px-2 py-1" />
-            <input value={tlEndTs ?? ""} onChange={e=>setTlEndTs(e.target.value || null)} placeholder="timeTo (ISO)" className="border rounded px-2 py-1" />
+            {/* srcIp filter removed (redundant with Actor) */}
+            {/* domain filter removed (duplicate on timeline tab) */}
+            <input value={tlEndTs ?? ""} onChange={e=>setTlEndTs(e.target.value || null)} placeholder="Time (ISO)" className="border rounded px-2 py-1" />
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search (url/domain/UA)" className="border rounded px-2 py-1" />
             <input value={status} onChange={e=>setStatus(e.target.value)} placeholder="status (e.g. 200,404)" className="border rounded px-2 py-1" />
-            <select value={method} onChange={e=>setMethod(e.target.value)} className="border rounded px-2 py-1">
+            <select value={method} onChange={e=>setMethod(e.target.value)} className="border rounded px-3 py-1 h-8.5 leading-6">
               <option value="">Any method</option>
               <option value="GET">GET</option>
               <option value="POST">POST</option>
               <option value="PUT">PUT</option>
               <option value="DELETE">DELETE</option>
             </select>
-            <button className="border rounded px-3 py-1" onClick={()=>{ setTlPage(1); fetchTimelinePage(1); }}>Apply</button>
+            <div className="flex items-center gap-2">
+              <button className="border rounded px-3 py-1" onClick={()=>{ setTlPage(1); fetchTimelinePage(1); }}>Apply</button>
+              <button className="border rounded px-3 py-1" onClick={()=>{ setTlActor(""); setTlEndTs(null); setSearch(""); setStatus(""); setMethod(""); setTlPage(1); fetchTimelinePage(1); }}>Reset</button>
+            </div>
           </div>
 
 
@@ -408,12 +413,15 @@ export default function UploadDetailPage() {
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <button
-              className="border rounded px-3 py-1"
+              className={`border rounded px-3 py-1 ${anoms && anoms.length > 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={!!(anoms && anoms.length > 0)}
               onClick={async ()=>{
-                const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
-                const r = await fetch(`${base}/api/uploads/${uploadId}/anomalies/detect`, { method: "POST", credentials: "include" });
-                if (!r.ok) { alert("Detection failed"); return; }
-                await refreshAnoms();
+                try {
+                  await apiPost(`/api/uploads/${uploadId}/anomalies/detect`, {});
+                  await refreshAnoms();
+                } catch (err) {
+                  alert("Detection failed");
+                }
               }}
             >
               Run detection
