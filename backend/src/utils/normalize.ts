@@ -7,9 +7,18 @@ export function toInt(s: any): number | null {
 }
 
 export function toBigIntOrNull(s: any): bigint | null {
-  if (s === null || s === undefined || s === "") return null;
-  const n = BigInt(String(s).replace(/[, ]/g, ""));
-  return n;
+  if (s === null || s === undefined) return null;
+  const str = String(s).trim();
+  if (str === "" || str === "-") return null;
+  // remove common thousands separators and spaces
+  const cleaned = str.replace(/[, ]/g, "");
+  // allow optional leading + or - and digits
+  if (!/^[+-]?\d+$/.test(cleaned)) return null;
+  try {
+    return BigInt(cleaned);
+  } catch {
+    return null;
+  }
 }
 
 export function toDateOrNull(s: any): Date | null {
