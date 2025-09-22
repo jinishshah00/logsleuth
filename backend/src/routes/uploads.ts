@@ -3,6 +3,7 @@ import multer from "multer";
 import { prisma } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { saveBufferToLocal, deleteLocalFile } from "../storage/localStore";
+import { saveBufferToGCS, deleteGcsObject } from "../storage/gcsStore";
 import { parseUpload } from "../services/parseUpload";
 
 const router = Router();
@@ -13,8 +14,18 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ ok: false, error: "file missing" });
 
-    // save to local disk for now
-    const savedPath = await saveBufferToLocal(req.file.originalname, req.file.buffer);
+    // prefer GCS if configured, otherwise save locally
+    let savedPath: string;
+    try {
+      if (process.env.GCS_BUCKET) {
+        savedPath = await saveBufferToGCS(req.file.originalname, req.file.buffer);
+      } else {
+        savedPath = await saveBufferToLocal(req.file.originalname, req.file.buffer);
+      }
+    } catch (e) {
+      console.error("Failed to save upload to storage", e);
+      return res.status(500).json({ ok: false, error: "storage_error" });
+    }
 
     // create Upload row
     const u = await prisma.upload.create({
@@ -84,9 +95,13 @@ router.delete("/:id", requireAuth, async (req, res) => {
     // delete local file if present
     if (u.gcsUri) {
       try {
-        await deleteLocalFile(u.gcsUri);
+        if (u.gcsUri.startsWith("gs://")) {
+          await deleteGcsObject(u.gcsUri);
+        } else {
+          await deleteLocalFile(u.gcsUri);
+        }
       } catch (e) {
-        console.error("Error deleting local file for upload", id, e);
+        console.error("Error deleting file for upload", id, e);
       }
     }
 

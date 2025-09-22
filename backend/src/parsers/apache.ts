@@ -1,7 +1,9 @@
 import fs from "fs";
 import readline from "readline";
+import { Readable } from "stream";
 import { prisma } from "../db";
 import { toInt, toBigIntOrNull, deriveUrlParts, truncateToDay, truncateToHour } from "../utils/normalize";
+import { lookupIp } from "../services/geoip";
 
 // Example line (combined):
 // 127.0.0.1 - frank [10/Oct/2000:13:55:36 -0700] "GET /apache_pb.gif HTTP/1.0" 200 2326 "http://www.example.com/start.html" "Mozilla/4.08 [en] (Win98; I ;Nav)"
@@ -32,9 +34,8 @@ function parseApacheDate(s: string): Date | null {
   return new Date(utcMs);
 }
 
-export async function parseApache(filePath: string, uploadId: string) {
-  const file = fs.createReadStream(filePath);
-  const rl = readline.createInterface({ input: file, crlfDelay: Infinity });
+export async function parseApache(stream: Readable, sourceName: string | undefined, uploadId: string) {
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
 
   let total = 0, parsed = 0;
   const batch: any[] = [];
@@ -63,6 +64,8 @@ export async function parseApache(filePath: string, uploadId: string) {
 
     const parts = deriveUrlParts(path?.startsWith("http") ? path : undefined);
 
+    const geo = lookupIp(ip || undefined);
+
     const ev = {
       uploadId,
       ts,
@@ -79,10 +82,10 @@ export async function parseApache(filePath: string, uploadId: string) {
       bytesOut: toBigIntOrNull(size),
       userAgent: ua,
       referrer: ref,
-      country: null,
-      city: null,
-      latitude: null,
-      longitude: null,
+  country: (geo && geo.country) || null,
+  city: (geo && geo.city) || null,
+  latitude: (geo && geo.latitude) || null,
+  longitude: (geo && geo.longitude) || null,
       urlHost: parts.host,
       urlPath: parts.path || (path.startsWith("/") ? path : null),
       urlTld: parts.tld,

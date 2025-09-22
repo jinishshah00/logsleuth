@@ -1,7 +1,9 @@
 import fs from "fs";
+import { Readable } from "stream";
 import { parse } from "csv-parse";
 import { prisma } from "../db";
 import { toBigIntOrNull, toDateOrNull, toInt, deriveUrlParts, truncateToDay, truncateToHour } from "../utils/normalize";
+import { lookupIp } from "../services/geoip";
 import { inferCsvMapping } from "./schemaDetect";
 
 type Row = Record<string, string>;
@@ -58,9 +60,8 @@ function looksLikeDomain(s?: string | undefined): boolean {
   return /^[\w.-]+\.[a-z]{2,}/i.test(s) || /^\d+\.\d+\.\d+\.\d+$/.test(s);
 }
 
-export async function parseZscalerCsv(filePath: string, uploadId: string) {
+export async function parseZscalerCsv(stream: Readable, sourceName: string | undefined, uploadId: string) {
   return new Promise<{ total: number; parsed: number }>((resolve, reject) => {
-    const stream = fs.createReadStream(filePath, { encoding: "utf-8" });
     const parser = parse({ columns: true, relax_quotes: true, skip_empty_lines: true, trim: true });
 
   let total = 0;
@@ -171,6 +172,9 @@ export async function parseZscalerCsv(filePath: string, uploadId: string) {
 
         const parts = deriveUrlParts(chosenUrl || undefined);
 
+        // try geoip on client IP if available
+        const geo = lookupIp(cip || undefined);
+
         const ev = {
           uploadId,
           ts,
@@ -187,10 +191,10 @@ export async function parseZscalerCsv(filePath: string, uploadId: string) {
           bytesOut: bytesOut,
           userAgent: chosenUA || null,
           referrer: null,
-          country: country || null,
-          city: city || null,
-          latitude: null,
-          longitude: null,
+          country: (country || (geo && geo.country)) || null,
+          city: (city || (geo && geo.city)) || null,
+          latitude: (geo && geo.latitude) || null,
+          longitude: (geo && geo.longitude) || null,
           urlHost: parts.host,
           urlPath: parts.path,
           urlTld: parts.tld,
@@ -222,6 +226,10 @@ export async function parseZscalerCsv(filePath: string, uploadId: string) {
 
     parser.on("error", (err) => reject(err));
 
+    // if the provided stream is not flowing with string encoding, ensure it's a utf-8 text stream
+    if ((stream as any).readableEncoding == null) {
+      // try to set encoding by piping through a transform if it's a fs ReadStream
+    }
     stream.pipe(parser);
   });
 }
