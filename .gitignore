@@ -27,6 +27,10 @@ backend/data/
 backend/data/**
 frontend/.next/
 
+# allow committed samples
+!backend/samples/
+!backend/samples/**
+
 # IDE / OS
 .DS_Store
 .vscode/

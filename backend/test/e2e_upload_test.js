@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { request, FormData, setGlobalDispatcher } = require('undici');
 
-const BASE = process.env.BASE_URL || 'http://localhost:3000';
+const BASE = process.env.BASE_URL || 'http://localhost:4000';
 
 async function signup(email, password) {
   const res = await request(`${BASE}/auth/signup`, { method: 'POST', body: JSON.stringify({ id: email.split('@')[0], email, password }), headers: { 'content-type': 'application/json' } });
@@ -32,8 +32,8 @@ async function triggerParse(cookie, id) {
 }
 
 async function main() {
-  const email = `test+e2e@local`;
-  const password = 'password123';
+  const email = `jinishshah00@gmail.com`;
+  const password = 'admin123';
   console.log('Signing up...');
   await signup(email, password);
   console.log('Logging in...');
