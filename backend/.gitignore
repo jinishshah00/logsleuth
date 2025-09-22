@@ -1,3 +1,24 @@
+# Node
+node_modules/
+
+# Build
+dist/
+
+# Local env
+.env
+.env.*
+
+# Local uploads
+data/
+data/**
+
+# Logs
+*.log
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
 node_modules
 # Keep environment variables out of version control
 .env
