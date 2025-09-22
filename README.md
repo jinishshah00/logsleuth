@@ -8,8 +8,8 @@ Table of contents
 
 - Introduction
 - System design and components
+- System architecture diagram and explanation
 - Key capabilities
-- Changes and fixes applied (detailed)
 - Local development (step-by-step)
   - Prerequisites
   - Install
@@ -33,45 +33,58 @@ LogSleuth helps teams analyze access logs with quick visualizations, anomaly det
 - Database: PostgreSQL (Cloud SQL in production). Prisma manages schema and migrations located in `prisma/`.
 - Secrets & infra: Google Secret Manager stores DATABASE_URL, JWT_SECRET, and OPENAI_API_KEY. Cloud Build and Cloud Run are used to build and serve containers. The Cloud SQL Auth proxy is used when running migrations from a developer machine.
 
-Deployment flow (high-level):
+## System architecture diagram and explanation
 
-1. Cloud Build builds images for `backend` and `frontend` and pushes to `gcr.io` (or Artifact Registry).
-2. Cloud Run services deploy the images; secrets are mapped into environment variables from Secret Manager.
-3. Cloud Run backend communicates with Cloud SQL (private or public IP) using standard Postgres connection strings or unix sockets.
+Below is a compact system diagram showing components and data flow. The ASCII diagram is intentionally simple — it maps directly to the repository structure and deployment flow.
+
+```
++-------------------+           +---------------------+           +--------------------+
+|   Browser / UI    |  <--->    |   Cloud Run Frontend |  <--->    |   Cloud Run Backend |
+| (Next.js client)  |  fetches  | (Next.js app)        |   API     | (Express + Prisma)  |
++-------------------+  (1)     +---------------------+  (2)     +--------------------+
+       |  ^                                                     |    |
+       |  |                                                     |    v
+(4)    v  |                                                     | +-----------------+
++-------------------+                                          | | Cloud SQL (PG)  |
+| Local dev tools /  |                                          | | (Prisma schema) |
+| CLI (pnpm, curl)   |                                          | +-----------------+
++-------------------+                                          |    ^
+       ^  |                                                     |    |
+       |  |                                                     |    +--> Secret Manager (DB URL, JWT, OpenAI)
+       |  |                                                     | (3)
+       |  +-----------------------------------------------------+
+       |         (5) Uploads & parsing (file -> parsed records)
+       |
+       +---- Optional: Cloud SQL Auth Proxy for local migrations
+```
+
+Explanation of numbered flows
+
+1) Browser/UI <-> Frontend
+   - The Next.js frontend serves the UI and static assets. It calls backend API endpoints via fetch with `credentials: 'include'` to allow cookie-based authentication.
+
+2) Frontend -> Backend
+   - The frontend calls the backend over HTTPS (Cloud Run URL). Backend implements auth, uploads, analytics and AI endpoints.
+
+3) Backend -> Cloud SQL & Secrets
+   - The backend connects to Cloud SQL (Postgres) using `DATABASE_URL` stored in Secret Manager. `JWT_SECRET` and `OPENAI_API_KEY` are also supplied via Secret Manager to the running service.
+
+4) Local dev tools
+   - Developers run `pnpm dev` for frontend and backend, use the Cloud SQL Auth proxy for migrations, and run curl/PowerShell tests locally.
+
+5) Uploads & parsing
+   - Users upload log files (txt/log or CSV). The backend parser accepts raw text files and CSV-style files, runs heuristics to detect fields, normalizes and maps them into the database schema.
 
 ## Key capabilities
 
-- Upload and parse Apache / Zscaler CSV and other supported log formats (parsers in `backend/src/parsers`).
-- Persist normalized records to Postgres via Prisma.
-- Analytics endpoints return counts, trends, and anomaly detection summaries.
-- User authentication with email + password. Passwords hashed with bcrypt; JWTs issued and stored as HttpOnly cookies. Cookie options adapt to `FRONTEND_ORIGIN` and `NODE_ENV`.
-- AI summaries: backend calls OpenAI (if `OPENAI_API_KEY` is present) to create short textual summaries of log content.
-
-## Changes and fixes applied during debugging & deploy
-
-This project went through a troubleshooting and hardening pass; these items are important to preserve and document:
-
-- CORS and preflight
-  - Added robust CORS options using `FRONTEND_ORIGIN` and `credentials: true` so cross-site cookies and preflights work correctly.
-  - Replaced `app.options("*", ...)` wildcard route (which triggered path-to-regexp startup errors) with a middleware approach that handles OPTIONS preflight and returns 204.
-
-- Trust proxy & rate limiting
-  - Set `app.set('trust proxy', true)` (backend) to ensure `req.ip` and forwarded headers behave correctly when behind Cloud Run / load balancer.
-  - Added a `keyGenerator` fallback to the login rate-limiter to avoid runtime ValidationError messages when forwarded headers are missing or malformed.
-
-- Secrets and DB
-  - Fixed a malformed `DATABASE_URL` secret stored in Secret Manager; re-ran Prisma migrations to ensure production schema contains the `User` table and other objects.
-  - Added and mapped `JWT_SECRET` and `OPENAI_API_KEY` secrets to Cloud Run.
-
-- Frontend improvements
-  - Replaced `RuntimeInfo` overlay with a no-op so production bundles don't reveal internal runtime detection or show overlays.
-  - Simplified `frontend/lib/api.ts` to prefer build-time `NEXT_PUBLIC_API_BASE` so deployed clients call the correct backend rather than trying to detect hostnames at runtime.
-
-- Misc
-  - Removed temporary debug endpoints used to inspect POST parsing during troubleshooting.
-  - Cleaned up tracked files (removed generated frontend index, cookie files and platform-specific binaries from tracking) and updated `.gitignore` to prevent accidental check-ins.
-
-These changes resolved the major production issues experienced earlier: CORS preflight failures, rate-limiter validation errors, Prisma connection parsing errors, and missing DB tables.
+- Upload and parse log files in plain text (`.txt` / `.log`) including common web server access formats (Apache/combined, common). The parser also supports CSV files (e.g., Zscaler exports) and many CSV-like variants.
+- Enhanced CSV heuristics: the parser includes heuristic algorithms that inspect CSV-like inputs and attempt to detect delimiter, header presence, timestamp fields, IPs, URLs, status codes and other likely columns. It then normalizes and maps detected fields to the internal schema where possible.
+  - Heuristic steps include: delimiter detection (comma/pipe/semicolon/tab), header row detection, sampling value patterns (IP regex, ISO/epoch timestamps, status/int fields), and confidence scoring.
+  - For ambiguous fields the parser produces best-effort normalized names and logs the detection confidence so downstream code or a human operator can review mapping.
+- Normalization and mapping: parsed log rows are normalized (timestamps standardized to UTC ISO strings, IPs normalized, integer fields coerced) and mapped into the Prisma-managed database models. The parser will attempt to map common column names (e.g., `time`, `timestamp`, `date`, `status`, `status_code`, `src_ip`, `client_ip`, `url`, `request`) into the canonical DB fields.
+- Persisting: normalized records are batched and written to Postgres via Prisma with transactional safety for each upload job.
+- Analytics: endpoints compute aggregates, trends, and basic anomaly detection over stored records.
+- AI summaries: when `OPENAI_API_KEY` is configured, the backend can generate short summaries for an upload or for query results.
 
 ## Local development — step-by-step
 
@@ -206,4 +219,3 @@ Important production gotchas (learned while debugging):
 
 ---
 
-If you'd like, I can commit this updated `README.md` to a branch and open a PR, or commit directly to `main` and push. Tell me which you prefer and I will proceed.
