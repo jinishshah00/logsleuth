@@ -15,7 +15,7 @@ export default function LoginPage() {
   useEffect(() => {
     let cancelled = false;
     // if already logged in, redirect to uploads
-    apiGet<{ ok: true; user: any }>("/auth/me")
+    apiGet<{ ok: true; user: { id: string; email: string } }>("/auth/me")
       .then((res) => { if (!cancelled) r.replace("/uploads"); })
       .catch(() => {})
     return () => { cancelled = true; };
@@ -28,7 +28,7 @@ export default function LoginPage() {
     try {
       await apiPost("/auth/login", { email, password });
       r.push("/uploads");
-    } catch (e) {
+    } catch (err: unknown) {
       setErr("Invalid credentials");
     } finally {
       setLoading(false);

@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from 'next/link';
 import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, BarChart, Bar, Brush
 } from "recharts";
 
-function CustomTimeTick(props: any) {
+function CustomTimeTick(props: { x?: number; y?: number; payload?: { value: string } }) {
   const { x, y, payload } = props;
-  const d = new Date(payload.value);
+  const value = payload?.value ?? "";
+  const d = value ? new Date(value) : new Date(0);
   // render ticks in UTC consistently so uploaded ISO timestamps with Z show correctly
   const dateStr = d.toISOString().split("T")[0];
   // drop milliseconds (e.g. 09:00:56.000 -> 09:00:56)
@@ -202,11 +204,11 @@ export default function UploadDetailPage() {
     <main className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <a href="/uploads" aria-label="Back to uploads" className="inline-flex items-center justify-center w-10 h-10 rounded-full border hover:bg-gray-100 flex-shrink-0">
+          <Link href="/uploads" aria-label="Back to uploads" className="inline-flex items-center justify-center w-10 h-10 rounded-full border hover:bg-gray-100 flex-shrink-0">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
               <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </a>
+          </Link>
           <h1 className="text-2xl font-semibold truncate min-w-0">{uploadName ?? `Upload ${uploadId}`}</h1>
         </div>
         <div className="text-right">

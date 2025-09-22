@@ -7,11 +7,12 @@ import { LoadingProvider, LoadingBar, useLoading } from "./loading";
 function ExposeLoader() {
   const { start, stop } = useLoading();
   useEffect(() => {
-    (globalThis as any).__LS_loading_start = start;
-    (globalThis as any).__LS_loading_stop = stop;
+    const g = globalThis as unknown as { __LS_loading_start?: () => void; __LS_loading_stop?: () => void };
+    g.__LS_loading_start = start;
+    g.__LS_loading_stop = stop;
     return () => {
-      try { delete (globalThis as any).__LS_loading_start; } catch {}
-      try { delete (globalThis as any).__LS_loading_stop; } catch {}
+      try { delete g.__LS_loading_start; } catch {}
+      try { delete g.__LS_loading_stop; } catch {}
     };
   }, [start, stop]);
   return null;

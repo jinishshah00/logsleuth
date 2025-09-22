@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiPost } from "@/lib/api";
+import { apiPost, extractErrorMessage } from "@/lib/api";
 
 export default function SignupPage() {
   const r = useRouter();
@@ -19,8 +19,9 @@ export default function SignupPage() {
     try {
       await apiPost("/auth/signup", { id, email, password });
       r.push("/login");
-    } catch (e: any) {
-      setErr(e?.message || "failed");
+    } catch (err: unknown) {
+      const msg = extractErrorMessage(err);
+      setErr(msg || "failed");
     } finally {
       setLoading(false);
     }

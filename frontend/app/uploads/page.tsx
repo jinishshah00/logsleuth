@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet, apiPost, apiPostForm, apiDelete } from "@/lib/api";
+import Link from "next/link";
+import { apiGet, apiPost, apiPostForm, apiDelete, extractErrorMessage } from "@/lib/api";
 
 type Me = { ok: true; user: { id: string; email: string; role: string } };
 
@@ -57,8 +58,9 @@ export default function UploadsPage() {
       await refresh();
       setFile(null);
       (document.getElementById("file-input") as HTMLInputElement).value = "";
-    } catch (e: any) {
-      setErr(e.message || "upload failed");
+    } catch (e: unknown) {
+      const msg = extractErrorMessage(e);
+      setErr(msg || "upload failed");
     } finally {
       setBusy(false);
     }
@@ -117,7 +119,7 @@ export default function UploadsPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+        {rows.map(r => (
                 <tr key={r.id} className="border-b">
                 <td className="p-2 font-mono text-sm">{r.id}</td>
                 <td className="p-2">{r.filename}</td>
@@ -146,14 +148,15 @@ export default function UploadsPage() {
                           try {
                             await apiDelete(`/uploads/${r.id}`);
                             await refresh();
-                          } catch (err: any) {
-                            alert(`Delete failed: ${err?.message || String(err)}`);
+                          } catch (err: unknown) {
+                            const msg = extractErrorMessage(err);
+                            alert(`Delete failed: ${msg || String(err)}`);
                           }
                         }}
                     >
                         Delete
                     </button>
-                    <a href={`/uploads/${r.id}`} className="underline text-sm">View</a>
+          <Link href={`/uploads/${r.id}`} className="underline text-sm">View</Link>
                 </td>
                 <td className="p-2">{new Date(r.uploadedAt).toLocaleString()}</td>
                 <td className="p-2">{r.parsedRows ?? "-"} / {r.totalRows ?? "-"}</td>

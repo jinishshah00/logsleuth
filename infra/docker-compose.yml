@@ -30,25 +30,28 @@ services:
 
   backend:
     build:
-      context: ../
-      dockerfile: backend/Dockerfile
+      context: ../backend
+      dockerfile: Dockerfile
     container_name: logsleuth-backend
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - ../backend/.env
     environment:
       - DATABASE_URL=postgresql://logsleuth:logsleuth@postgres:5432/logsleuth
       - JWT_SECRET=devsecret
       - NODE_ENV=development
     ports:
       - "4000:4000"
-    volumes:
-      - ../backend:/app:ro
+    # Note: removed host mount of ../backend to ensure the container uses the image's built artifacts
+    # volumes:
+    #  - ../backend:/app:ro
 
   frontend:
     build:
-      context: ../
-      dockerfile: frontend/Dockerfile
+      context: ../frontend
+      dockerfile: Dockerfile
     container_name: logsleuth-frontend
     depends_on:
       backend:
@@ -58,8 +61,9 @@ services:
       - NEXT_PUBLIC_API_BASE=http://localhost:4000
     ports:
       - "3000:3000"
-    volumes:
-      - ../frontend:/app:ro
+    # Note: removed host mount of ../frontend to ensure the container uses the image's built artifacts
+    # volumes:
+    #  - ../frontend:/app:ro
 
 volumes:
   pgdata:
