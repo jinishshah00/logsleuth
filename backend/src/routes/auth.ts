@@ -7,11 +7,19 @@ import rateLimit from "express-rate-limit";
 
 const router = Router();
 
+// ...existing code...
+
 const loginLimiter = rateLimit({
   windowMs: 60_000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  // Use the request's ip (as resolved by Express) to identify clients for rate-limiting.
+  // This avoids express-rate-limit validating forwarded headers or trust proxy
+  // behavior which can throw at startup in some environments.
+  keyGenerator: (req) => {
+    return req.ip || (req as any).headers['x-forwarded-for'] || '';
+  },
 });
 
 const LoginSchema = z.object({
@@ -42,12 +50,26 @@ router.post("/login", loginLimiter, async (req, res) => {
     { expiresIn: "1d" }
   );
 
-  res.cookie("token", token, {
+  // Cookie options: if frontend is served over HTTPS and not localhost, we must set
+  // SameSite=None and Secure=true so the browser will send cookies cross-site.
+  const frontendOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:3000";
+  const isFrontendSecure = frontendOrigin.startsWith("https://") && !frontendOrigin.includes("localhost");
+  const cookieOptions: any = {
     httpOnly: true,
-    sameSite: "lax",
-    secure: false, // true in production behind HTTPS
     maxAge: 24 * 60 * 60 * 1000,
-  });
+    // default to lax for local development
+    sameSite: "lax",
+    secure: false,
+  };
+  if (isFrontendSecure) {
+    cookieOptions.sameSite = "none";
+    cookieOptions.secure = true;
+  } else if (process.env.NODE_ENV === "production") {
+    // In production, prefer secure cookies when possible
+    cookieOptions.secure = true;
+  }
+
+  res.cookie("token", token, cookieOptions);
 
   return res.json({ ok: true });
 });
@@ -70,7 +92,16 @@ router.post("/signup", async (req, res) => {
 });
 
 router.post("/logout", (_req, res) => {
-  res.clearCookie("token", { httpOnly: true, sameSite: "lax", secure: false });
+  const frontendOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:3000";
+  const isFrontendSecure = frontendOrigin.startsWith("https://") && !frontendOrigin.includes("localhost");
+  const clearOpts: any = { httpOnly: true, sameSite: "lax", secure: false };
+  if (isFrontendSecure) {
+    clearOpts.sameSite = "none";
+    clearOpts.secure = true;
+  } else if (process.env.NODE_ENV === "production") {
+    clearOpts.secure = true;
+  }
+  res.clearCookie("token", clearOpts);
   res.json({ ok: true });
 });
 

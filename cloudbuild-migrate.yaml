@@ -1,0 +1,11 @@
+availableSecrets:
+  secretManager:
+  - versionName: "projects/logsleuth-472909/secrets/logsleuth-database-url/versions/latest"
+    env: "DATABASE_URL"
+  - versionName: "projects/logsleuth-472909/secrets/openai-api-key/versions/latest"
+    env: "OPENAI_API_KEY"
+steps:
+- name: "gcr.io/cloud-builders/docker"
+  env: ["DATABASE_URL","OPENAI_API_KEY"]
+  args: ["run","--rm","-e","DATABASE_URL","-e","OPENAI_API_KEY","us-central1-docker.pkg.dev/logsleuth-472909/logsleuth-repo/backend:6f7800e","npx","prisma","migrate","deploy"]
+timeout: "3600s"

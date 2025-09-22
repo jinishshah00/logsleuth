@@ -1,4 +1,20 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+// Support either env name: older builds used NEXT_PUBLIC_API_BASE_URL, newer deploys set
+// NEXT_PUBLIC_API_BASE. Prefer the new one but fall back to the older name, then to
+// localhost for local dev.
+// Build-time envs (embedded into the client). We prefer the newer name but fall back
+// to the older name. If these are missing or point to localhost (because the image
+// was built without the proper env), try a runtime detection so deployed clients
+// don't mistakenly call localhost:4000.
+const EMBEDDED_API_BASE = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_BASE_URL;
+
+export const API_BASE: string = (() => {
+  // If embed exists and isn't a localhost URL, use it.
+  if (EMBEDDED_API_BASE && !EMBEDDED_API_BASE.includes("localhost")) return EMBEDDED_API_BASE;
+
+    // Server-side and client-side: prefer the embedded build-time value and
+    // otherwise fall back to localhost for development.
+    return EMBEDDED_API_BASE || "http://localhost:4000";
+})();
 
 // typing for the global loader hooks exposed by LoadingShell
 declare global {

@@ -57,3 +57,7 @@ coverage
 logs
 *.log
 .DS_Store
+#/ Local binaries not for repo
+backend/cloud_sql_proxy.exe
+frontend/frontend_index.html
+cookies.txt
