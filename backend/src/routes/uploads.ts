@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { prisma } from "../db";
 import { requireAuth } from "../middleware/auth";
-import { saveBufferToLocal } from "../storage/localStore";
+import { saveBufferToLocal, deleteLocalFile } from "../storage/localStore";
 import { parseUpload } from "../services/parseUpload";
 
 const router = Router();
@@ -81,6 +81,15 @@ router.delete("/:id", requireAuth, async (req, res) => {
   if (!u) return res.status(404).json({ ok: false });
 
   try {
+    // delete local file if present
+    if (u.gcsUri) {
+      try {
+        await deleteLocalFile(u.gcsUri);
+      } catch (e) {
+        console.error("Error deleting local file for upload", id, e);
+      }
+    }
+
     await prisma.$transaction([
       prisma.anomaly.deleteMany({ where: { uploadId: id } }),
       prisma.event.deleteMany({ where: { uploadId: id } }),
