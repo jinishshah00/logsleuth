@@ -1,6 +1,25 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// Startup environment validation (non-fatal): log presence of critical env vars without leaking secrets
+function checkRequiredEnv() {
+  const required = ["DATABASE_URL", "JWT_SECRET"];
+  for (const v of required) {
+    if (!process.env[v]) {
+      console.warn(`[env] warning: required env var ${v} is not set`);
+    }
+  }
+
+  // OPENAI_API_KEY is optional, but if missing we warn so AI features are clearly disabled
+  if (!process.env.OPENAI_API_KEY) {
+    console.warn("[env] warning: OPENAI_API_KEY not set — AI features will be disabled");
+  } else {
+    console.log("[env] info: OPENAI_API_KEY is present");
+  }
+}
+
+checkRequiredEnv();
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
