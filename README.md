@@ -122,7 +122,7 @@ flowchart LR
       BE3["Parser and normalization - Apache Nginx CSV heuristics"]
       BE4["Analytics service - summary events timeline"]
       BE5["Anomaly engine v1 - D1 to D5 with confidence"]
-      BE6["AI explanations - optional"]
+      BE6["AI explanations"]
     end
 
     %% Data layer
