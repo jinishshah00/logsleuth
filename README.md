@@ -1,221 +1,203 @@
-# LogSleuth — log ingestion, analytics and AI summaries
+# Logsleuth — Full-Stack Cybersecurity Log Analyzer
 
-LogSleuth is a compact full-stack application for ingesting, parsing and analyzing HTTP access logs. It includes a Next.js frontend for uploading and viewing logs, and a TypeScript/Express backend that parses logs, stores normalized records in PostgreSQL via Prisma, and exposes analytics and AI-assisted summarization endpoints.
+## Overview
 
-This README documents the system design, features, local development, deployment reference (Google Cloud Run), secrets and the production fixes applied during deployment and debugging.
+Logsleuth is a full-stack web app for uploading heterogeneous logs (CSV/TXT/Apache/Nginx), parsing them into a normalized schema, and giving a SOC-friendly view of activity: summaries, time-series, searchable event tables, a narrative timeline, and a first-pass anomaly engine with human-readable explanations.
 
-Table of contents
+### What’s implemented (highlights)
 
-- Introduction
-- System design and components
-- System architecture diagram and explanation
-- Key capabilities
-- Local development (step-by-step)
-  - Prerequisites
-  - Install
-  - Environment variables / secrets
-  - Database & Prisma (migrations)
-  - Start backend and frontend
-- Running E2E smoke tests (auth + AI)
-- Deploying to Google Cloud Run (reference)
-- Security, secrets and best practices
-- Troubleshooting and common errors
-- Contributing
+* **Auth (minimal):** login + create profile (username, email, password).
+* **Upload pipeline:** accepts **.csv** and **.txt**; large files streamed; stored; parsed to DB.
+* **Parsers & normalization:**
 
-## Introduction
+  * **Web server logs:** Apache **Common** (CLF), **Combined**, and typical **Nginx** access logs.
+  * **CSV:** Zscaler-style + “similar” variants via **heuristic column mapping** (auto-infer roles like timestamp, ip, status, bytes, url/domain, ua, etc.).
+  * Normalized to one `Event` schema (timestamps, actors, network fields, URL parts, bytes, UA, referrer, + raw line).
+* **Analytics UI (Next.js):**
 
-LogSleuth helps teams analyze access logs with quick visualizations, anomaly detection and short AI-generated summaries. Goals are to make logs easy to ingest, normalize and query, while providing a small UI for exploration and AI summarization.
+  * **Summary tab:** “Events over time” with **user-selectable buckets** (1/5/10/15/30/60m), **zoom**/pan brush, top source IPs, top domains/paths, methods/status, bytes percentiles.
+  * **Events tab:** paginated & filterable (method, status, text search, time range).
+  * **Timeline tab:** same filters + pagination for a readable, chronological feed.
+* **Anomaly engine v1 (deterministic):** request-rate spikes, rare domains, status error bursts, egress outliers, impossible travel; per-anomaly confidence; human-readable reasons.
+* **AI explanations:** LLM-backed anomaly explanations & upload summary when an API key is present; deterministic templates when not.
+* **Deployment:**: Deployed on Google Cloud Platform (GCP).
 
-## System design and components
+---
 
-- Frontend: Next.js (App Router), built with `pnpm` and containerized for Cloud Run. The frontend calls the backend API with `credentials: 'include'` so authentication is cookie-based.
-- Backend: Node 18 (TypeScript), Express 5, Prisma v6. Endpoints include `/auth` (login/sign-up/logout/me), `/uploads` (file upload and parse), `/analytics` (aggregates) and `/ai` (OpenAI summarization).
-- Database: PostgreSQL (Cloud SQL in production). Prisma manages schema and migrations located in `prisma/`.
-- Secrets & infra: Google Secret Manager stores DATABASE_URL, JWT_SECRET, and OPENAI_API_KEY. Cloud Build and Cloud Run are used to build and serve containers. The Cloud SQL Auth proxy is used when running migrations from a developer machine.
+## Run it Locally
 
-## System architecture diagram and explanation
+### Prerequisites
+- Docker Desktop (Compose v2) installed and running
+- Git installed
 
-Below is a compact system diagram showing components and data flow. The ASCII diagram is intentionally simple — it maps directly to the repository structure and deployment flow.
-
-```
-+-------------------+           +---------------------+           +--------------------+
-|   Browser / UI    |  <--->    |   Cloud Run Frontend |  <--->    |   Cloud Run Backend |
-| (Next.js client)  |  fetches  | (Next.js app)        |   API     | (Express + Prisma)  |
-+-------------------+  (1)     +---------------------+  (2)     +--------------------+
-       |  ^                                                     |    |
-       |  |                                                     |    v
-(4)    v  |                                                     | +-----------------+
-+-------------------+                                          | | Cloud SQL (PG)  |
-| Local dev tools /  |                                          | | (Prisma schema) |
-| CLI (pnpm, curl)   |                                          | +-----------------+
-+-------------------+                                          |    ^
-       ^  |                                                     |    |
-       |  |                                                     |    +--> Secret Manager (DB URL, JWT, OpenAI)
-       |  |                                                     | (3)
-       |  +-----------------------------------------------------+
-       |         (5) Uploads & parsing (file -> parsed records)
-       |
-       +---- Optional: Cloud SQL Auth Proxy for local migrations
-```
-
-Explanation of numbered flows
-
-1) Browser/UI <-> Frontend
-   - The Next.js frontend serves the UI and static assets. It calls backend API endpoints via fetch with `credentials: 'include'` to allow cookie-based authentication.
-
-2) Frontend -> Backend
-   - The frontend calls the backend over HTTPS (Cloud Run URL). Backend implements auth, uploads, analytics and AI endpoints.
-
-3) Backend -> Cloud SQL & Secrets
-   - The backend connects to Cloud SQL (Postgres) using `DATABASE_URL` stored in Secret Manager. `JWT_SECRET` and `OPENAI_API_KEY` are also supplied via Secret Manager to the running service.
-
-4) Local dev tools
-   - Developers run `pnpm dev` for frontend and backend, use the Cloud SQL Auth proxy for migrations, and run curl/PowerShell tests locally.
-
-5) Uploads & parsing
-   - Users upload log files (txt/log or CSV). The backend parser accepts raw text files and CSV-style files, runs heuristics to detect fields, normalizes and maps them into the database schema.
-
-## Key capabilities
-
-- Upload and parse log files in plain text (`.txt` / `.log`) including common web server access formats (Apache/combined, common). The parser also supports CSV files (e.g., Zscaler exports) and many CSV-like variants.
-- Enhanced CSV heuristics: the parser includes heuristic algorithms that inspect CSV-like inputs and attempt to detect delimiter, header presence, timestamp fields, IPs, URLs, status codes and other likely columns. It then normalizes and maps detected fields to the internal schema where possible.
-  - Heuristic steps include: delimiter detection (comma/pipe/semicolon/tab), header row detection, sampling value patterns (IP regex, ISO/epoch timestamps, status/int fields), and confidence scoring.
-  - For ambiguous fields the parser produces best-effort normalized names and logs the detection confidence so downstream code or a human operator can review mapping.
-- Normalization and mapping: parsed log rows are normalized (timestamps standardized to UTC ISO strings, IPs normalized, integer fields coerced) and mapped into the Prisma-managed database models. The parser will attempt to map common column names (e.g., `time`, `timestamp`, `date`, `status`, `status_code`, `src_ip`, `client_ip`, `url`, `request`) into the canonical DB fields.
-- Persisting: normalized records are batched and written to Postgres via Prisma with transactional safety for each upload job.
-- Analytics: endpoints compute aggregates, trends, and basic anomaly detection over stored records.
-- AI summaries: when `OPENAI_API_KEY` is configured, the backend can generate short summaries for an upload or for query results.
-
-## Local development — step-by-step
-
-Prerequisites
-
-- Node 18.x
-- pnpm (v9)
-- Git
-- PostgreSQL (local) or Cloud SQL + Cloud SQL Auth proxy
-- Docker (optional — helpful for running Postgres locally)
-
-Install dependencies
-
+1) Clone repository
 ```powershell
-# from repo root
-npm install -g pnpm@9
-pnpm install
+git clone <YOUR_REPO_URL>
+cd logsleuth
 ```
 
-Environment variables
-
-Create `backend/.env` (DO NOT commit). Minimum set for local development:
-
-```
-DATABASE_URL=postgresql://logsleuth:password@127.0.0.1:5432/logsleuth
-JWT_SECRET=replace-with-a-strong-secret
+2) Prepare backend environment file (do NOT commit)
+Create [`backend/.env`](backend/.env ) and set secrets locally. Example (replace OPENAI_API_KEY and JWT_SECRET):
+```powershell
+@"
+PORT=4000
 FRONTEND_ORIGIN=http://localhost:3000
-NODE_ENV=development
-OPENAI_API_KEY=sk-REPLACE_ME  # optional locally
+UPLOAD_DIR=./data/uploads
+OPENAI_API_KEY=REPLACE_WITH_YOUR_KEY
+OPENAI_MODEL=gpt-4o-mini
+JWT_SECRET=replace-with-a-strong-secret
+"@ | Out-File -Encoding utf8 backend\.env
 ```
 
-Database (local Postgres)
-
-Option A — Docker Postgres (fast):
-
+3) Start all services (build images and run containers)
 ```powershell
-# run Postgres container
-docker run --name logsleuth-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=logsleuth -e POSTGRES_DB=logsleuth -p 5432:5432 -d postgres:15
+docker compose -f infra/docker-compose.yml up --build -d
 ```
 
-Option B — Cloud SQL (dev or staging):
-
-- Start Cloud SQL Auth proxy and point `DATABASE_URL` at `127.0.0.1:5432`.
-
-Apply Prisma migrations
-
+4) Run Prisma migrations (apply DB schema to the local Postgres container)
 ```powershell
-# from repo root or prisma folder
-pnpm prisma migrate deploy --schema=prisma/schema.prisma
-pnpm prisma generate --schema=prisma/schema.prisma
+# wait until postgres healthy, then:
+docker compose exec backend pnpm prisma migrate deploy --schema=prisma/schema.prisma
+docker compose exec backend pnpm prisma generate --schema=prisma/schema.prisma
 ```
 
-Start the backend
+5) Verify services (URLs / ports)
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:4000
+- Postgres (host): localhost:5432
+- Postgres UI (pgweb): http://localhost:8081
 
+6) Useful commands (logs, rebuild, stop)
 ```powershell
-cd backend
-pnpm dev
-# or for production-like run
-pnpm start
+# follow backend logs
+docker compose logs -f backend
+
+# rebuild one service (frontend)
+docker compose build frontend
+docker compose up -d frontend
+
+# stop and remove containers + volumes
+docker compose -f infra/docker-compose.yml down --volumes --remove-orphans
 ```
 
-Start the frontend
+7) Notes and cautions
+- [`backend/.env`](backend/.env ) contains secrets — do not commit it.
+- Docker Compose is configured to build images (no host mounts). Changes to source require rebuilding images (see step 6).
+- The compose file exposes Postgres on localhost:5432 and pgweb on 8081 (pgweb uses port 8081 in infra/docker-compose.yml).
+- If you change NEXT_PUBLIC_API_BASE for local testing, update the frontend service env in [`infra/docker-compose.yml`](infra/docker-compose.yml ) or rebuild with a build-arg in the frontend Dockerfile.
 
-```powershell
-cd frontend
-pnpm dev
-# open http://localhost:3000
-```
+---
 
-Notes on cookies/auth locally
+## Architecture + How it flows
 
-- For cookie-based auth across ports, ensure `FRONTEND_ORIGIN` matches `http://localhost:3000` and your browser accepts the cookie. In development `SameSite` is permissive enough for local flows.
+flowchart LR
+  subgraph GCP[Google Cloud Platform]
+    direction LR
 
-## Running E2E smoke tests (auth + AI)
+    subgraph FE[Cloud Run: Frontend (Next.js)]
+      FE1[Next.js App<br/>Tailwind + Recharts]
+    end
 
-You can manually run a short smoke test from your machine (PowerShell examples):
+    subgraph BE[Cloud Run: Backend (Express / TS)]
+      BE1[Auth & Sessions<br/>(cookies/helmet/cors)]
+      BE2[Uploads API<br/>(multer, streaming)]
+      BE3[Parser & Normalization<br/>Apache/Nginx, CSV + Heuristics]
+      BE4[Analytics Service<br/>summary, events, timeline]
+      BE5[Anomaly Engine v1<br/>D1–D5 detectors + confidence]
+      BE6[AI Explanations (opt)<br/>LLM summaries/explanations]
+    end
 
-1) Login (POST) and capture Set-Cookie
+    subgraph DATA[Data Layer]
+      SQL[(Cloud SQL: Postgres<br/>Prisma ORM)]
+      GCS[(Cloud Storage: files)]
+      SECRETS[[Secret Manager<br/>DB URL, API keys]]
+    end
 
-```powershell
-$body = @{ email = 'your@address.com'; password = 'password' } | ConvertTo-Json
-Invoke-RestMethod -Uri 'https://<backend-url>/auth/login' -Method Post -Body $body -ContentType 'application/json' -Headers @{ Origin = 'https://<frontend-url>' } -SessionVariable s
-# The session variable $s will store cookies for subsequent requests
-```
+    subgraph OBS[Ops / Observability]
+      LOGS[[Cloud Logging]]
+      MON[[Cloud Monitoring]]
+    end
+  end
 
-2) Authenticated request
+  FE1 ---|HTTPS (cookies)| BE1
+  BE1 --> BE2 --> BE3 --> BE4 --> BE5 --> BE6
 
-```powershell
-Invoke-RestMethod -Uri 'https://<backend-url>/auth/me' -Method Get -WebSession $s -Headers @{ Origin = 'https://<frontend-url>' }
-```
+  BE2 -->|object path| GCS
+  BE3 -->|normalized events| SQL
+  BE4 -->|aggregations/queries| SQL
+  BE5 -->|anomalies| SQL
 
-3) Trigger AI summary (example)
+  BE1 -. uses .-> SECRETS
+  BE6 -. optional .-> SECRETS
 
-```powershell
-$payload = @{ ids = @('some-upload-id') } | ConvertTo-Json
-Invoke-RestMethod -Uri 'https://<backend-url>/ai/summarize' -Method Post -Body $payload -ContentType 'application/json' -WebSession $s -Headers @{ Origin = 'https://<frontend-url>' }
-```
+  FE1 <-->|JSON APIs| BE4
+  FE1 <-->|read anomalies| BE5
 
-If the AI endpoint returns an error that says `NO_KEY` or similar, confirm `OPENAI_API_KEY` is correctly configured in the environment (Secret Manager in production).
+  LOGS -.-> BE
+  MON  -.-> BE
+  LOGS -.-> FE
+  MON  -.-> FE
 
-## Deploying to Google Cloud Run — reference
 
-This project has been deployed to Cloud Run in the past. Highlights for redeploying:
+**Flow:**
 
-1. Build images using Cloud Build (example `frontend/cloudbuild.yaml` contains an example build step). Use build substitution to pass `NEXT_PUBLIC_API_BASE` into the frontend build.
-2. Push images to `gcr.io/<project>/logsleuth-backend` and `...-frontend`.
-3. Create Secret Manager secrets and add secret versions for `DATABASE_URL`, `JWT_SECRET`, `OPENAI_API_KEY`.
-4. Deploy Cloud Run services and map the secret values to environment variables. Ensure `FRONTEND_ORIGIN` in backend matches the frontend URL and CORS is configured with `credentials: true`.
+1. **Upload:** user posts a `.csv`/`.txt`. File is streamed to local storage (GCS later) and an `Upload` row is created.
+2. **Parse & normalize:** content is sniffed → a parser is chosen (Apache/Nginx preset or CSV). For CSVs, a heuristic **column role detector** infers the mapping. Rows become normalized `Event`s (with derived URL parts & safe nulls).
+3. **Analytics:** the UI calls REST endpoints for **summary** (totals, top lists, p-tile bytes, **bucketed time-series**) and **events/timeline** (filters + pagination).
+4. **Anomalies v1:** deterministic detectors run over the upload, writing `Anomaly` rows with `reasonText` and `confidence`. If AI (Open API Key present) is enabled, the reason/summary is **upgraded** with natural language.
+5. **Read-only UI:** charts + tables render from DB; timeline shows a narrative slice; everything is filterable.
 
-Important production gotchas (learned while debugging):
+---
 
-- Do not register wildcard options routes with `app.options('*', ...)` in Express when using path-to-regexp vX — it caused a startup PathError in a production revision. Use a middleware to handle OPTIONS preflight.
-- Set `app.set('trust proxy', true)` when behind Cloud Run to get correct client IPs and to avoid express-rate-limit ValidationError issues.
-- Keep secrets out of git. Use Secret Manager (or equivalent).
+## Tech Stack
 
-## Security & best practices
+* **Frontend:** Next.js (TypeScript, App Router), Tailwind CSS, Recharts (time-series with zoom brush), fetch wrapper with credentials.
+* **Backend:** Node.js + Express (TypeScript), Helmet, CORS, cookie-based auth (httpOnly), Multer for uploads.
+* **ORM/DB:** Prisma + PostgreSQL; indexes on (`uploadId`, `ts`), (`uploadId`, `srcIp`), (`uploadId`, `domain`) for fast filters; percentile queries for bytes.
+* **Parsers:** Regex/preset parsers for Apache/Nginx; CSV reader with **delimiter sniff + header/no-header detection + column role heuristics**.
+* **AI (Model: gpt-4o-mini):** provider interface; OpenAI if `OPENAI_API_KEY` is set; deterministic templates otherwise.
+* **Infra (local):** Docker Compose for Postgres + pgweb; backend/frontend run with pnpm; BigInt-safe JSON replacer to avoid serialization errors.
+* **Deployment (GCP):**: Deployed to Google Cloud Platform using Cloud Run services (frontend & backend) behind HTTPS; Cloud SQL (Postgres) for the database; Cloud Storage bucket for file uploads (local disk supported in dev); Secret Manager for credentials (DB URL, API keys); Cloud Logging/Monitoring enabled. VPC Serverless Connector, and Artifact Registry/Cloud Build for containerized rollout.
 
-- Never commit `.env` files, API keys, or platform-specific binaries. Use `.gitignore` and Secret Manager for production secrets.
-- Revoke and rotate any leaked API keys immediately.
-- For production, enable least-privilege permissions for the Cloud Run service account (access to Secret Manager and Cloud SQL only as required).
+---
 
-## Troubleshooting & common errors
+## Anomaly math, AI usage, limitations
 
-- CORS 401 / cookie not set: Ensure `Access-Control-Allow-Credentials: true`, the frontend `fetch` uses `credentials: 'include'`, and `FRONTEND_ORIGIN` is exactly the origin of the frontend.
-- express-rate-limit ValidationError: set `trust proxy` or provide a custom `keyGenerator` that returns a fallback IP.
-- Prisma connection parse error: check `DATABASE_URL` for accidental whitespace or malformed socket path.
-- `table does not exist` from Prisma: run migrations against the DB.
+### Detectors (v1: deterministic, explainable)
 
-## Contributing
+* **D1 — Request-rate spike (by IP or user):** rolling 5-min counts vs upload baseline. Score \~ `z = (cnt - median)/MAD` (robust). Flag if `z ≥ τ1` and count ≥ min.
+* **D2 — Rare domain (org/user):** frequency below rarity threshold within upload (and/or vs. recent uploads). Score rises as frequency → 0.
+* **D3 — Status anomaly:** unusually high 4xx/5xx concentration for an IP/domain in a short window vs its upload-level baseline.
+* **D4 — Egress outlier:** `bytesOut` per event above `p99` (or `max(p99, 5×p95)`) for the upload; also surfaces the top outliers.
+* **D5 — Impossible travel:** consecutive events for same user show geo distance & time implying speed >> realistic (e.g., > 900 km/h). Uses haversine + Δt.
 
-- Please open issues and PRs against `main` or create feature branches. If you need history rewritten (to remove secrets), coordinate with collaborators — that requires force-push and care.
+**Confidence:** per detector, `c_i = min(1, normalized_score)`. If multiple detectors hit, combine:
+`c_final = 1 - Π (1 - c_i)` (Noisy-OR).
+
+**Linkage:** anomalies reference the contributing `Event` (`eventId`) when applicable, so you can “View in events/timeline”.
+
+### How AI is used (Model: gpt-4o-mini)
+
+* **Anomaly explanations:** Given the detector context (who/what/where/when + why) we ask the model to produce a short, SOC-style reason with mitigation tips. If AI is off, a deterministic string is used.
+* **Upload summary:** Turns top-N metrics (peaks, rare domains, error pockets, outliers) into a one-page brief. If AI is off, we render a structured template.
+
+> **Privacy & guardrails:** Inputs to the model are limited to the current upload’s derived stats and a handful of representative rows; PII beyond user/email already present in logs is not added. AI is **advisory**—math still drives the detection.
+
+### Known limitations (by design for v1)
+
+* **Missing host in Apache “combined”:** request line is a path only. We **do not** treat `Referer` as the requested domain; when host is truly unknown, “Top domains” may be sparse. The UI falls back to **Top paths**.
+* **Timezone/clock skew:** timestamps are parsed and normalized to UTC when possible; mixed timezones may require a per-upload timezone override.
+* **Heuristic mapping ambiguity:** if a CSV lacks headers and columns are similar (e.g., two numeric columns), auto-mapping can be uncertain. We surface a UI mapping step when confidence is low.
+* **Static thresholds:** v1 uses upload-level baselines. Actor-adaptive baselines and seasonality help (see Future Scope).
+
+---
+
+## Future scope — making v1 “learn” (brief)
+
+* **Adaptive baselines (v1.5):** keep rolling per-actor/domain EWMAs, p95s, and hour-of-day/week profiles; set **dynamic thresholds** instead of fixed, reducing false positives.
+* **Outlier ensemble (v2):** lightweight unsupervised models (robust z-scores, Isolation Forest) on short windows (per actor) combining rate, error ratio, egress, uniqueness.
+* **Analyst feedback loop:** thumbs up/down on anomalies → `AnomalyFeedback` → optional supervised re-ranker (logistic/GBM) to boost precision where you care most.
+* **Knowledgeable summaries:** pass **deltas vs baseline** and **deduped clusters** to the LLM so it prioritizes “what changed” and “what to do”, not restating raw counts.
 
 ---
 
