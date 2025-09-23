@@ -111,25 +111,25 @@ flowchart LR
     direction LR
 
     %% Frontend
-    subgraph FE["Cloud Run - Frontend (Next.js)"]
-      FE1["Next.js app - Tailwind + Recharts"]
+    subgraph FE["Cloud Run - Frontend: Next.js"]
+      FE1["Next.js app - Tailwind and Recharts"]
     end
 
     %% Backend
-    subgraph BE["Cloud Run - Backend (Express TS)"]
-      BE1["Auth & sessions - cookies/helmet/cors"]
+    subgraph BE["Cloud Run - Backend: Express TS"]
+      BE1["Auth and sessions - cookies helmet cors"]
       BE2["Uploads API - multer streaming"]
-      BE3["Parser & normalization - Apache/Nginx, CSV heuristics"]
-      BE4["Analytics service - summary/events/timeline"]
-      BE5["Anomaly engine v1 - D1..D5 + confidence"]
-      BE6["AI explanations (optional)"]
+      BE3["Parser and normalization - Apache Nginx CSV heuristics"]
+      BE4["Analytics service - summary events timeline"]
+      BE5["Anomaly engine v1 - D1 to D5 with confidence"]
+      BE6["AI explanations - optional"]
     end
 
     %% Data layer
     subgraph DATA["Data layer"]
-      SQL["Cloud SQL (Postgres) - Prisma ORM"]
+      SQL["Cloud SQL Postgres - Prisma ORM"]
       GCS["Cloud Storage - files"]
-      SECRETS["Secret Manager - DB URL, API keys"]
+      SECRETS["Secret Manager - DB URL and API keys"]
     end
 
     %% Observability
@@ -140,24 +140,25 @@ flowchart LR
   end
 
   %% Edges
-  FE1 ---|HTTPS (cookies)| BE1
+  FE1 --- BE1
   BE1 --> BE2 --> BE3 --> BE4 --> BE5 --> BE6
 
-  BE2 -->|object path| GCS
-  BE3 -->|normalized events| SQL
-  BE4 -->|aggregations/queries| SQL
-  BE5 -->|anomalies| SQL
+  BE2 --> GCS
+  BE3 --> SQL
+  BE4 --> SQL
+  BE5 --> SQL
 
-  BE1 -. uses .-> SECRETS
-  BE6 -. optional .-> SECRETS
+  BE1 -.-> SECRETS
+  BE6 -.-> SECRETS
 
-  FE1 <-->|JSON APIs| BE4
-  FE1 <-->|read anomalies| BE5
+  FE1 <--> BE4
+  FE1 <--> BE5
 
   LOGS -.-> BE1
   LOGS -.-> FE1
   MON  -.-> BE1
   MON  -.-> FE1
+
 ```
 
 **Flow:**
