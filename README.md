@@ -1,4 +1,11 @@
+---
+
 # Logsleuth — Full-Stack Cybersecurity Log Analyzer
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Open%20App-0A84FF?style=for-the-badge)](https://logsleuth-frontend-1047124277235.us-central1.run.app/)
+
+**Test login (or create a new profile):**
+`admin@gmail.com` / `admin123`
 
 ## Overview
 
@@ -20,24 +27,27 @@ Logsleuth is a full-stack web app for uploading heterogeneous logs (CSV/TXT/Apac
   * **Timeline tab:** same filters + pagination for a readable, chronological feed.
 * **Anomaly engine v1 (deterministic):** request-rate spikes, rare domains, status error bursts, egress outliers, impossible travel; per-anomaly confidence; human-readable reasons.
 * **AI explanations:** LLM-backed anomaly explanations & upload summary when an API key is present; deterministic templates when not.
-* **Deployment:**: Deployed on Google Cloud Platform (GCP).
+* **Deployment:** Deployed on Google Cloud Platform (GCP).
 
 ---
 
 ## Run it Locally
 
 ### Prerequisites
-- Docker Desktop (Compose v2) installed and running
-- Git installed
 
-1) Clone repository
+* Docker Desktop (Compose v2) installed and running
+* Git installed
+
+1. Clone repository
+
 ```powershell
 git clone <YOUR_REPO_URL>
 cd logsleuth
 ```
 
-2) Prepare backend environment file (do NOT commit)
-Create [`backend/.env`](backend/.env ) and set secrets locally. Example (replace OPENAI_API_KEY and JWT_SECRET):
+2. Prepare backend environment file (do NOT commit)
+   Create [`backend/.env`](backend/.env) and set secrets locally. Example (replace OPENAI\_API\_KEY and JWT\_SECRET):
+
 ```powershell
 @"
 PORT=4000
@@ -49,25 +59,29 @@ JWT_SECRET=replace-with-a-strong-secret
 "@ | Out-File -Encoding utf8 backend\.env
 ```
 
-3) Start all services (build images and run containers)
+3. Start all services (build images and run containers)
+
 ```powershell
 docker compose -f infra/docker-compose.yml up --build -d
 ```
 
-4) Run Prisma migrations (apply DB schema to the local Postgres container)
+4. Run Prisma migrations (apply DB schema to the local Postgres container)
+
 ```powershell
 # wait until postgres healthy, then:
 docker compose exec backend pnpm prisma migrate deploy --schema=prisma/schema.prisma
 docker compose exec backend pnpm prisma generate --schema=prisma/schema.prisma
 ```
 
-5) Verify services (URLs / ports)
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:4000
-- Postgres (host): localhost:5432
-- Postgres UI (pgweb): http://localhost:8081
+5. Verify services (URLs / ports)
 
-6) Useful commands (logs, rebuild, stop)
+* Frontend: [http://localhost:3000](http://localhost:3000)
+* Backend API: [http://localhost:4000](http://localhost:4000)
+* Postgres (host): localhost:5432
+* Postgres UI (pgweb): [http://localhost:8081](http://localhost:8081)
+
+6. Useful commands (logs, rebuild, stop)
+
 ```powershell
 # follow backend logs
 docker compose logs -f backend
@@ -80,16 +94,18 @@ docker compose up -d frontend
 docker compose -f infra/docker-compose.yml down --volumes --remove-orphans
 ```
 
-7) Notes and cautions
-- [`backend/.env`](backend/.env ) contains secrets — do not commit it.
-- Docker Compose is configured to build images (no host mounts). Changes to source require rebuilding images (see step 6).
-- The compose file exposes Postgres on localhost:5432 and pgweb on 8081 (pgweb uses port 8081 in infra/docker-compose.yml).
-- If you change NEXT_PUBLIC_API_BASE for local testing, update the frontend service env in [`infra/docker-compose.yml`](infra/docker-compose.yml ) or rebuild with a build-arg in the frontend Dockerfile.
+7. Notes and cautions
+
+* [`backend/.env`](backend/.env) contains secrets — do not commit it.
+* Docker Compose is configured to build images (no host mounts). Changes to source require rebuilding images (see step 6).
+* The compose file exposes Postgres on localhost:5432 and pgweb on 8081 (pgweb uses port 8081 in infra/docker-compose.yml).
+* If you change NEXT\_PUBLIC\_API\_BASE for local testing, update the frontend service env in [`infra/docker-compose.yml`](infra/docker-compose.yml) or rebuild with a build-arg in the frontend Dockerfile.
 
 ---
 
 ## Architecture + How it flows
 
+```mermaid
 flowchart LR
   subgraph GCP[Google Cloud Platform]
     direction LR
@@ -137,14 +153,14 @@ flowchart LR
   MON  -.-> BE
   LOGS -.-> FE
   MON  -.-> FE
-
+```
 
 **Flow:**
 
 1. **Upload:** user posts a `.csv`/`.txt`. File is streamed to local storage (GCS later) and an `Upload` row is created.
 2. **Parse & normalize:** content is sniffed → a parser is chosen (Apache/Nginx preset or CSV). For CSVs, a heuristic **column role detector** infers the mapping. Rows become normalized `Event`s (with derived URL parts & safe nulls).
 3. **Analytics:** the UI calls REST endpoints for **summary** (totals, top lists, p-tile bytes, **bucketed time-series**) and **events/timeline** (filters + pagination).
-4. **Anomalies v1:** deterministic detectors run over the upload, writing `Anomaly` rows with `reasonText` and `confidence`. If AI (Open API Key present) is enabled, the reason/summary is **upgraded** with natural language.
+4. **Anomalies v1:** deterministic detectors run over the upload, writing `Anomaly` rows with `reasonText` and `confidence`. If AI (OpenAI API key present) is enabled, the reason/summary is **upgraded** with natural language.
 5. **Read-only UI:** charts + tables render from DB; timeline shows a narrative slice; everything is filterable.
 
 ---
@@ -157,7 +173,7 @@ flowchart LR
 * **Parsers:** Regex/preset parsers for Apache/Nginx; CSV reader with **delimiter sniff + header/no-header detection + column role heuristics**.
 * **AI (Model: gpt-4o-mini):** provider interface; OpenAI if `OPENAI_API_KEY` is set; deterministic templates otherwise.
 * **Infra (local):** Docker Compose for Postgres + pgweb; backend/frontend run with pnpm; BigInt-safe JSON replacer to avoid serialization errors.
-* **Deployment (GCP):**: Deployed to Google Cloud Platform using Cloud Run services (frontend & backend) behind HTTPS; Cloud SQL (Postgres) for the database; Cloud Storage bucket for file uploads (local disk supported in dev); Secret Manager for credentials (DB URL, API keys); Cloud Logging/Monitoring enabled. VPC Serverless Connector, and Artifact Registry/Cloud Build for containerized rollout.
+* **Deployment (GCP):** Deployed to Google Cloud Platform using Cloud Run services (frontend & backend) behind HTTPS; Cloud SQL (Postgres) for the database; Cloud Storage bucket for file uploads (local disk supported in dev); Secret Manager for credentials (DB URL, API keys); Cloud Logging/Monitoring enabled. Optional hardening: VPC Serverless Connector, and Artifact Registry/Cloud Build for containerized rollout.
 
 ---
 
@@ -200,4 +216,3 @@ flowchart LR
 * **Knowledgeable summaries:** pass **deltas vs baseline** and **deduped clusters** to the LLM so it prioritizes “what changed” and “what to do”, not restating raw counts.
 
 ---
-
