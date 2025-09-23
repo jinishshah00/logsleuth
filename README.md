@@ -107,34 +107,39 @@ docker compose -f infra/docker-compose.yml down --volumes --remove-orphans
 
 ```mermaid
 flowchart LR
-  subgraph GCP[Google Cloud Platform]
+  subgraph GCP["Google Cloud Platform"]
     direction LR
 
-    subgraph FE[Cloud Run: Frontend (Next.js)]
-      FE1[Next.js App<br/>Tailwind + Recharts]
+    %% Frontend
+    subgraph FE["Cloud Run - Frontend (Next.js)"]
+      FE1["Next.js app - Tailwind + Recharts"]
     end
 
-    subgraph BE[Cloud Run: Backend (Express / TS)]
-      BE1[Auth & Sessions<br/>(cookies/helmet/cors)]
-      BE2[Uploads API<br/>(multer, streaming)]
-      BE3[Parser & Normalization<br/>Apache/Nginx, CSV + Heuristics]
-      BE4[Analytics Service<br/>summary, events, timeline]
-      BE5[Anomaly Engine v1<br/>D1–D5 detectors + confidence]
-      BE6[AI Explanations (opt)<br/>LLM summaries/explanations]
+    %% Backend
+    subgraph BE["Cloud Run - Backend (Express TS)"]
+      BE1["Auth & sessions - cookies/helmet/cors"]
+      BE2["Uploads API - multer streaming"]
+      BE3["Parser & normalization - Apache/Nginx, CSV heuristics"]
+      BE4["Analytics service - summary/events/timeline"]
+      BE5["Anomaly engine v1 - D1..D5 + confidence"]
+      BE6["AI explanations (optional)"]
     end
 
-    subgraph DATA[Data Layer]
-      SQL[(Cloud SQL: Postgres<br/>Prisma ORM)]
-      GCS[(Cloud Storage: files)]
-      SECRETS[[Secret Manager<br/>DB URL, API keys]]
+    %% Data layer
+    subgraph DATA["Data layer"]
+      SQL["Cloud SQL (Postgres) - Prisma ORM"]
+      GCS["Cloud Storage - files"]
+      SECRETS["Secret Manager - DB URL, API keys"]
     end
 
-    subgraph OBS[Ops / Observability]
-      LOGS[[Cloud Logging]]
-      MON[[Cloud Monitoring]]
+    %% Observability
+    subgraph OBS["Observability"]
+      LOGS["Cloud Logging"]
+      MON["Cloud Monitoring"]
     end
   end
 
+  %% Edges
   FE1 ---|HTTPS (cookies)| BE1
   BE1 --> BE2 --> BE3 --> BE4 --> BE5 --> BE6
 
@@ -149,10 +154,10 @@ flowchart LR
   FE1 <-->|JSON APIs| BE4
   FE1 <-->|read anomalies| BE5
 
-  LOGS -.-> BE
-  MON  -.-> BE
-  LOGS -.-> FE
-  MON  -.-> FE
+  LOGS -.-> BE1
+  LOGS -.-> FE1
+  MON  -.-> BE1
+  MON  -.-> FE1
 ```
 
 **Flow:**
