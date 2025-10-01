@@ -1,7 +1,6 @@
 ---
-
 # Logsleuth — Full-Stack Cybersecurity Log Analyzer
-
+---
 **Test login (or create a new profile):**
 `admin@gmail.com` / `admin123`
 
