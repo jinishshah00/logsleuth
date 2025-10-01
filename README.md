@@ -2,8 +2,6 @@
 
 # Logsleuth — Full-Stack Cybersecurity Log Analyzer
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Open%20App-0A84FF?style=for-the-badge)](https://logsleuth-frontend-1047124277235.us-central1.run.app/)
-
 **Test login (or create a new profile):**
 `admin@gmail.com` / `admin123`
 
