@@ -16,7 +16,7 @@ CREATE TABLE "public"."User" (
 CREATE TABLE "public"."Upload" (
     "id" TEXT NOT NULL,
     "filename" TEXT NOT NULL,
-    "gcsUri" TEXT,
+    "filePath" TEXT,
     "uploadedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "status" "public"."UploadStatus" NOT NULL DEFAULT 'RECEIVED',
     "totalRows" INTEGER,

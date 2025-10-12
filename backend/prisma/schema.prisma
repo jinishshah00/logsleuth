@@ -28,7 +28,7 @@ enum UploadStatus {
 model Upload {
   id          String        @id @default(cuid())
   filename    String
-  gcsUri      String?
+  filePath    String?
   uploadedAt  DateTime      @default(now())
   status      UploadStatus  @default(RECEIVED)
   totalRows   Int?

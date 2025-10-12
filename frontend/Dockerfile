@@ -20,8 +20,8 @@ RUN npm install -g pnpm@9 || true
 ENV NEXT_DISABLE_ESLINT_PLUGIN=1
 # Allow embedding the API base at build-time. If no build-arg is provided, default to the
 # deployed backend so the client bundle won't fall back to localhost in Cloud Run.
-ARG NEXT_PUBLIC_API_BASE="https://logsleuth-backend-1047124277235.us-central1.run.app"
-ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+ARG NEXT_PUBLIC_API_BASE="http://localhost:4000"
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
 
 # build the Next app (supports App Router in /app)
 RUN pnpm run build

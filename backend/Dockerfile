@@ -22,6 +22,7 @@ COPY package.json ./
 RUN npm install -g pnpm@9 || true
 # copy node_modules and Prisma generated client from builder to final image
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
 # copy built artifacts (compiled JS)
 COPY --from=builder /app/dist ./dist
 # create uploads directory and ensure the runtime user owns it

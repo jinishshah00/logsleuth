@@ -3,7 +3,6 @@ import multer from "multer";
 import { prisma } from "../db";
 import { requireAuth } from "../middleware/auth";
 import { saveBufferToLocal, deleteLocalFile } from "../storage/localStore";
-import { saveBufferToGCS, deleteGcsObject } from "../storage/gcsStore";
 import { parseUpload } from "../services/parseUpload";
 
 const router = Router();
@@ -14,14 +13,10 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ ok: false, error: "file missing" });
 
-    // prefer GCS if configured, otherwise save locally
+    // save locally (GCS support removed in this build)
     let savedPath: string;
     try {
-      if (process.env.GCS_BUCKET) {
-        savedPath = await saveBufferToGCS(req.file.originalname, req.file.buffer);
-      } else {
-        savedPath = await saveBufferToLocal(req.file.originalname, req.file.buffer);
-      }
+      savedPath = await saveBufferToLocal(req.file.originalname, req.file.buffer);
     } catch (e) {
       console.error("Failed to save upload to storage", e);
       return res.status(500).json({ ok: false, error: "storage_error" });
@@ -31,11 +26,11 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
     const u = await prisma.upload.create({
       data: {
         filename: req.file.originalname,
-        gcsUri: savedPath, // temporarily store local path in this field; will swap to GCS later
+        filePath: savedPath, // local path we saved to
         status: "RECEIVED",
         uploadedBy: (req as any).auth.uid,
       },
-      select: { id: true, filename: true, status: true, uploadedAt: true }
+      select: { id: true, filename: true, status: true, uploadedAt: true, filePath: true }
     });
 
     return res.json({ ok: true, upload: u });
@@ -73,7 +68,7 @@ router.post("/:id/parse", requireAuth, async (req, res) => {
   const id = req.params.id;
 
   // ensure ownership
-  const u = await prisma.upload.findFirst({ where: { id, uploadedBy: uid } });
+  const u = await prisma.upload.findFirst({ where: { id, uploadedBy: uid }, select: { id: true, filename: true, status: true, uploadedAt: true, parsedRows: true, totalRows: true, filePath: true, uploadedBy: true } });
   if (!u) return res.status(404).json({ ok: false, error: "not_found" });
 
   try {
@@ -91,19 +86,15 @@ router.delete("/:id", requireAuth, async (req, res) => {
   const u = await prisma.upload.findFirst({ where: { id, uploadedBy: uid } });
   if (!u) return res.status(404).json({ ok: false });
 
-  try {
-    // delete local file if present
-    if (u.gcsUri) {
-      try {
-        if (u.gcsUri.startsWith("gs://")) {
-          await deleteGcsObject(u.gcsUri);
-        } else {
-          await deleteLocalFile(u.gcsUri);
+    try {
+      // delete local file if present
+      if (u.filePath) {
+        try {
+          await deleteLocalFile(u.filePath);
+        } catch (e) {
+          console.error("Error deleting file for upload", id, e);
         }
-      } catch (e) {
-        console.error("Error deleting file for upload", id, e);
       }
-    }
 
     await prisma.$transaction([
       prisma.anomaly.deleteMany({ where: { uploadId: id } }),

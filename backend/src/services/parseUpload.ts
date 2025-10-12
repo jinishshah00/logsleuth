@@ -3,7 +3,6 @@ import { Readable } from "stream";
 import { prisma } from "../db";
 import { parseZscalerCsv } from "../parsers/zscalerCsv";
 import { parseApache } from "../parsers/apache";
-import { getGcsReadStream } from "../storage/gcsStore";
 
 function guessFormatFromPath(path: string): "zscaler_csv" | "apache" | "unknown" {
   const lower = path.toLowerCase();
@@ -15,17 +14,12 @@ function guessFormatFromPath(path: string): "zscaler_csv" | "apache" | "unknown"
 export async function parseUpload(uploadId: string) {
   const upload = await prisma.upload.findUnique({ where: { id: uploadId } });
   if (!upload) throw new Error("upload not found");
-  if (!upload.gcsUri) throw new Error("no file path/uri on upload");
-  const uri = upload.gcsUri;
+  if (!upload.filePath) throw new Error("no file path on upload");
+  const uri = upload.filePath;
 
-  // obtain a readable stream from GCS or local FS
-  let stream: Readable;
-  if (uri.startsWith("gs://")) {
-    stream = getGcsReadStream(uri);
-  } else {
-    if (!fs.existsSync(uri)) throw new Error("file not found on disk");
-    stream = fs.createReadStream(uri, { encoding: "utf-8" });
-  }
+  // obtain a readable stream from local FS
+  if (!fs.existsSync(uri)) throw new Error("file not found on disk");
+  const stream: Readable = fs.createReadStream(uri, { encoding: "utf-8" });
 
   await prisma.upload.update({ where: { id: uploadId }, data: { status: "PARSING", totalRows: 0, parsedRows: 0, errorText: null } });
 
@@ -44,14 +38,12 @@ export async function parseUpload(uploadId: string) {
         try {
           res = await parseZscalerCsv(stream, uri, uploadId);
         } catch {
-          // reopen stream for apache attempt if from local file
-          if (!uri.startsWith("gs://") && fs.existsSync(uri)) {
+          // try apache by re-opening the local file
+          if (fs.existsSync(uri)) {
             const s2 = fs.createReadStream(uri);
             res = await parseApache(s2, uri, uploadId);
           } else {
-            // for GCS, re-acquire read stream
-            const s2 = getGcsReadStream(uri);
-            res = await parseApache(s2, uri, uploadId);
+            throw new Error("file not found for fallback parse");
           }
         }
         break;
