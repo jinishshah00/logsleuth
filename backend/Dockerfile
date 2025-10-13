@@ -25,8 +25,11 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 # copy built artifacts (compiled JS)
 COPY --from=builder /app/dist ./dist
-# create uploads directory and ensure the runtime user owns it
-RUN mkdir -p /app/data/uploads && chown -R app:app /app/data
+# create uploads directory and ensure the runtime user owns relevant runtime files
+RUN mkdir -p /app/data/uploads \
+	&& chown -R app:app /app/data \
+	# fix ownership for copied runtime files so the non-root runtime user can write during prisma generate
+	&& chown -R app:app /app/node_modules /app/prisma /app/dist || true
 ENV NODE_ENV=production
 USER app
 EXPOSE 4000
