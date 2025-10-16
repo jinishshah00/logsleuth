@@ -1,0 +1,56 @@
+# Render Blueprint: logsleuth (Backend + Frontend)
+#
+# How to use:
+# 1) Push this repo to GitHub (or ensure Render can access it).
+# 2) In Render, create a "Blueprint" deploy from this repo. Render will read render.yaml.
+# 3) Before/after first deploy, set the secret env vars (DATABASE_URL, JWT_SECRET) in the Render Dashboard.
+# 4) After the backend URL and frontend URL are known, update the placeholder values below (or override in Dashboard) and redeploy.
+#
+# Notes:
+# - Backend runs Prisma migrations on start (dockerCommand) before launching the server.
+# - FRONTEND_ORIGIN accepts comma-separated origins. Keep exact scheme+host.
+# - NEXT_PUBLIC_API_BASE is read at build time by Next.js; ensure it points to the backend URL.
+# - Free plan has ephemeral disk; uploads are temporary and cleaned on delete. Consider persistent disks or Supabase Storage later if needed.
+
+services:
+  - type: web
+    name: logsleuth-backend
+    env: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: backend/Dockerfile
+    # Run migrations, then start the server
+    dockerCommand: >-
+      sh -c "pnpm prisma migrate deploy --schema=prisma/schema.prisma && node dist/index.js"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: UPLOAD_DIR
+        value: /app/data/uploads
+      - key: FRONTEND_ORIGIN
+        # Replace with your real frontend URL after first deploy
+        value: https://YOUR-FRONTEND.onrender.com
+      - key: JWT_SECRET
+        # Set this in the dashboard; value intentionally omitted from source control
+        sync: false
+      - key: DATABASE_URL
+        # Supabase Direct Connection URL (postgresql://...sslmode=require)
+        sync: false
+
+  - type: web
+    name: logsleuth-frontend
+    env: node
+    plan: free
+    rootDir: frontend
+    buildCommand: pnpm install && pnpm run build
+    startCommand: pnpm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_BASE
+        # Replace with your backend URL before/after first deploy to ensure correct API base in the client bundle
+        value: https://YOUR-BACKEND.onrender.com
