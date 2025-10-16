@@ -33,4 +33,5 @@ RUN mkdir -p /app/data/uploads \
 ENV NODE_ENV=production
 USER app
 EXPOSE 4000
-CMD ["node", "dist/index.js"]
+# Run Prisma migrations on container start, then launch the server
+CMD ["sh", "-c", "npx --yes prisma migrate deploy --schema=prisma/schema.prisma && node dist/index.js"]
