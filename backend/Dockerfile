@@ -16,6 +16,8 @@ RUN pnpm run build
 
 FROM node:18-alpine
 WORKDIR /app
+# Ensure TLS certs are available for outbound HTTPS/SSL connections (Supabase requires SSL)
+RUN apk add --no-cache ca-certificates openssl && update-ca-certificates
 RUN addgroup -S app && adduser -S app -G app
 # copy package manifest and install production deps in final image to ensure runtime modules exist
 COPY package.json ./
