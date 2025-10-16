@@ -18,7 +18,9 @@ services:
     env: docker
     plan: free
     rootDir: backend
-    dockerfilePath: backend/Dockerfile
+    # dockerfilePath is relative to rootDir. Since rootDir is `backend`,
+    # the Dockerfile path should be just `Dockerfile`.
+    dockerfilePath: Dockerfile
     # Run migrations, then start the server
     dockerCommand: >-
       sh -c "pnpm prisma migrate deploy --schema=prisma/schema.prisma && node dist/index.js"
