@@ -22,6 +22,7 @@ checkRequiredEnv();
 
 import express from "express";
 import cors from "cors";
+import type { CorsOptions } from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { PrismaClient } from "@prisma/client";
@@ -48,23 +49,41 @@ app.set("json replacer", (_key: string, value: unknown) =>
 app.use(helmet());
 app.use(express.json());
 app.use(cookieParser());
-// Configure CORS robustly: accept a comma-separated FRONTEND_ORIGIN env var,
-// trim entries, and use a function so we only set Access-Control-Allow-Origin
-// when the incoming Origin matches one of the allowed values. Also explicitly
-// handle OPTIONS preflight responses.
+// CORS configuration
+// - Accept comma-separated FRONTEND_ORIGIN values from env (exact match)
+// - Always allow common local dev origins
+// - Optionally allow any *.onrender.com origin (default true) to simplify demo deployments
 const rawOrigins = process.env.FRONTEND_ORIGIN ?? "http://localhost:3000";
-const allowedOrigins = rawOrigins.split(",").map((s) => s.trim()).filter(Boolean);
+const allowedOrigins = new Set(
+  rawOrigins
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+const allowOnrenderWildcard = (process.env.ALLOW_ONRENDER_ORIGINS ?? "true").toLowerCase() === "true";
 
-const corsOptions = {
+function isOriginAllowed(incomingOrigin?: string): boolean {
+  if (!incomingOrigin) return true; // non-browser / curl
+  // exact allowlist match
+  if (allowedOrigins.has(incomingOrigin)) return true;
+  // common local dev
+  if (incomingOrigin === "http://localhost:3000" || incomingOrigin === "http://localhost:5173") return true;
+  // allow any Render-hosted frontend by default to reduce friction during demo
+  if (allowOnrenderWildcard && /\.onrender\.com$/i.test(new URL(incomingOrigin).host)) return true;
+  return false;
+}
+
+const corsOptions: CorsOptions = {
   origin: (incomingOrigin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow non-browser requests (e.g. server-to-server) which have no Origin header
-    if (!incomingOrigin) return callback(null, true);
-    if (allowedOrigins.includes(incomingOrigin)) return callback(null, true);
+    if (isOriginAllowed(incomingOrigin)) return callback(null, true);
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[cors] blocked origin: ${incomingOrigin ?? "<none>"}. Allowed: ${Array.from(allowedOrigins).join(", ")}, onrenderWildcard=${allowOnrenderWildcard}`);
+    }
     return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
-  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"] as string[],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"] as string[],
 };
 
 app.use(cors(corsOptions));
@@ -76,8 +95,11 @@ app.use(cors(corsOptions));
 // may reject during startup.
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
-    // run the cors middleware for this request and then end with 204
-    return cors(corsOptions)(req as any, res as any, () => res.sendStatus(204));
+    // Evaluate CORS for this preflight; respond 204 if allowed, 403 otherwise
+    return cors(corsOptions)(req as any, res as any, (err: any) => {
+      if (err) return res.sendStatus(403);
+      return res.sendStatus(204);
+    });
   }
   next();
 });
