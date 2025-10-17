@@ -35,5 +35,5 @@ RUN mkdir -p /app/data/uploads \
 ENV NODE_ENV=production
 USER app
 EXPOSE 4000
-# Run Prisma migrations on container start, then launch the server
-CMD ["sh", "-c", "npx --yes prisma migrate deploy --schema=prisma/schema.prisma && node dist/index.js"]
+# Start the API (migrations are applied out-of-band when using Supabase pooled IPv4)
+CMD ["node", "dist/index.js"]
