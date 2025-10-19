@@ -1,6 +1,10 @@
 ---
 # Logsleuth — Full-Stack Cybersecurity Log Analyzer
 ---
+
+[![Live Demo](https://img.shields.io/badge/Live-Demo-green?style=for-the-badge&logo=vercel)](https://logsleuth-frontend.onrender.com)
+---
+
 **Test login (or create a new profile):**
 `admin@gmail.com` / `admin123`
 
