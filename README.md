@@ -28,7 +28,7 @@ Logsleuth is a full-stack web app for uploading heterogeneous logs (CSV/TXT/Apac
   * **Timeline tab:** same filters + pagination for a readable, chronological feed.
 * **Anomaly engine v1 (deterministic):** request-rate spikes, rare domains, status error bursts, egress outliers, impossible travel; per-anomaly confidence; human-readable reasons.
 * **AI explanations:** LLM-backed anomaly explanations & upload summary when an API key is present; deterministic templates when not.
-* **Deployment:** Deployed on Google Cloud Platform (GCP).
+* **Deployment:** Deployed on Render (frontend & backend) with Supabase (PostgreSQL database).
 
 ---
 
@@ -42,11 +42,18 @@ Logsleuth is a full-stack web app for uploading heterogeneous logs (CSV/TXT/Apac
 1. Clone repository
 
 ```powershell
-git clone <YOUR_REPO_URL>
+git clone https://github.com/jinishshah00/logsleuth/
 cd logsleuth
 ```
 
-2. Prepare backend environment file (do NOT commit)
+2. Create upload directory (git-ignored)
+   Create the `backend/data/uploads` folder for file storage:
+
+```powershell
+mkdir -p backend/data/uploads
+```
+
+3. Prepare backend environment file (do NOT commit)
    Create [`backend/.env`](backend/.env) and set secrets locally. Example (replace OPENAI\_API\_KEY and JWT\_SECRET):
 
 ```powershell
@@ -56,46 +63,49 @@ FRONTEND_ORIGIN=http://localhost:3000
 UPLOAD_DIR=./data/uploads
 OPENAI_API_KEY=REPLACE_WITH_YOUR_KEY
 OPENAI_MODEL=gpt-4o-mini
-JWT_SECRET=replace-with-a-strong-secret
+DATABASE_URL=postgresql://logsleuth:logsleuth@localhost:5432/logsleuth
+JWT_SECRET=devsecret
 "@ | Out-File -Encoding utf8 backend\.env
 ```
 
-3. Start all services (build images and run containers)
+4. Start all services (build images and run containers)
 
 ```powershell
 docker compose -f infra/docker-compose.yml up --build -d
 ```
 
-4. Run Prisma migrations (apply DB schema to the local Postgres container)
+5. Run Prisma migrations (apply DB schema to the local Postgres container)
 
 ```powershell
-# wait until postgres healthy, then:
+# wait until postgres healthy, then (run from infra folder):
+cd infra
 docker compose exec backend pnpm prisma migrate deploy --schema=prisma/schema.prisma
 docker compose exec backend pnpm prisma generate --schema=prisma/schema.prisma
+cd ..
 ```
 
-5. Verify services (URLs / ports)
+6. Verify services (URLs / ports)
 
 * Frontend: [http://localhost:3000](http://localhost:3000)
 * Backend API: [http://localhost:4000](http://localhost:4000)
 * Postgres (host): localhost:5432
 * Postgres UI (pgweb): [http://localhost:8081](http://localhost:8081)
 
-6. Useful commands (logs, rebuild, stop)
+7. Useful commands (logs, rebuild, stop)
 
 ```powershell
 # follow backend logs
-docker compose logs -f backend
+docker compose -f infra/docker-compose.yml logs -f backend
 
 # rebuild one service (frontend)
-docker compose build frontend
-docker compose up -d frontend
+docker compose -f infra/docker-compose.yml build frontend
+docker compose -f infra/docker-compose.yml up -d frontend
 
 # stop and remove containers + volumes
 docker compose -f infra/docker-compose.yml down --volumes --remove-orphans
 ```
 
-7. Notes and cautions
+8. Notes and cautions
 
 * [`backend/.env`](backend/.env) contains secrets — do not commit it.
 * Docker Compose is configured to build images (no host mounts). Changes to source require rebuilding images (see step 6).
@@ -108,16 +118,16 @@ docker compose -f infra/docker-compose.yml down --volumes --remove-orphans
 
 ```mermaid
 flowchart LR
-  subgraph GCP["Google Cloud Platform"]
+  subgraph RENDER["Render + Supabase"]
     direction LR
 
     %% Frontend
-    subgraph FE["Cloud Run - Frontend: Next.js"]
+    subgraph FE["Render - Frontend: Next.js"]
       FE1["Next.js app - Tailwind and Recharts"]
     end
 
     %% Backend
-    subgraph BE["Cloud Run - Backend: Express TS"]
+    subgraph BE["Render - Backend: Express TS"]
       BE1["Auth and sessions - cookies helmet cors"]
       BE2["Uploads API - multer streaming"]
       BE3["Parser and normalization - Apache Nginx CSV heuristics"]
@@ -128,15 +138,8 @@ flowchart LR
 
     %% Data layer
     subgraph DATA["Data layer"]
-      SQL["Cloud SQL Postgres - Prisma ORM"]
-      GCS["Cloud Storage - files"]
-      SECRETS["Secret Manager - DB URL and API keys"]
-    end
-
-    %% Observability
-    subgraph OBS["Observability"]
-      LOGS["Cloud Logging"]
-      MON["Cloud Monitoring"]
+      SQL["Supabase Postgres - Prisma ORM"]
+      STORAGE["Local Storage - files (dev) / Render disk (prod)"]
     end
   end
 
@@ -144,27 +147,19 @@ flowchart LR
   FE1 --- BE1
   BE1 --> BE2 --> BE3 --> BE4 --> BE5 --> BE6
 
-  BE2 --> GCS
+  BE2 --> STORAGE
   BE3 --> SQL
   BE4 --> SQL
   BE5 --> SQL
 
-  BE1 -.-> SECRETS
-  BE6 -.-> SECRETS
-
   FE1 <--> BE4
   FE1 <--> BE5
-
-  LOGS -.-> BE1
-  LOGS -.-> FE1
-  MON  -.-> BE1
-  MON  -.-> FE1
 
 ```
 
 **Flow:**
 
-1. **Upload:** user posts a `.csv`/`.txt`. File is streamed to local storage (GCS later) and an `Upload` row is created.
+1. **Upload:** user posts a `.csv`/`.txt`. File is streamed to local storage (Render disk in prod) and an `Upload` row is created.
 2. **Parse & normalize:** content is sniffed → a parser is chosen (Apache/Nginx preset or CSV). For CSVs, a heuristic **column role detector** infers the mapping. Rows become normalized `Event`s (with derived URL parts & safe nulls).
 3. **Analytics:** the UI calls REST endpoints for **summary** (totals, top lists, p-tile bytes, **bucketed time-series**) and **events/timeline** (filters + pagination).
 4. **Anomalies v1:** deterministic detectors run over the upload, writing `Anomaly` rows with `reasonText` and `confidence`. If AI (OpenAI API key present) is enabled, the reason/summary is **upgraded** with natural language.
@@ -180,7 +175,7 @@ flowchart LR
 * **Parsers:** Regex/preset parsers for Apache/Nginx; CSV reader with **delimiter sniff + header/no-header detection + column role heuristics**.
 * **AI (Model: gpt-4o-mini):** provider interface; OpenAI if `OPENAI_API_KEY` is set; deterministic templates otherwise.
 * **Infra (local):** Docker Compose for Postgres + pgweb; backend/frontend run with pnpm; BigInt-safe JSON replacer to avoid serialization errors.
-* **Deployment (GCP):** Deployed to Google Cloud Platform using Cloud Run services (frontend & backend) behind HTTPS; Cloud SQL (Postgres) for the database; Cloud Storage bucket for file uploads (local disk supported in dev); Secret Manager for credentials (DB URL, API keys); Cloud Logging/Monitoring enabled. Optional hardening: VPC Serverless Connector, and Artifact Registry/Cloud Build for containerized rollout.
+* **Deployment:** Deployed on Render (frontend & backend) with Supabase (PostgreSQL database).
 
 ---
 
